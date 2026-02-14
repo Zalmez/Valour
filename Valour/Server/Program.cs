@@ -271,8 +271,13 @@ public partial class Program
             options.MemoryBufferThreshold = 20480000;
             options.MultipartBodyLengthLimit = 20480000;
         });
+#if DEBUG
+        var cnn = Environment.GetEnvironmentVariable("ConnectionStrings__valourdb") ?? throw new Exception("Connection unable to retrive connection string from aspire") ; // TODO: When moving to production this should be derived via dependency injection instead (https://aspire.dev/integrations/databases/postgres/postgres-get-started/?lang=csharp#set-up-client-projects)
+#else
+        var cnn = ValourDb.ConnectionString;
+#endif
 
-        services.AddDbContext<ValourDb>(options => { options.UseNpgsql(ValourDb.ConnectionString); }, ServiceLifetime.Scoped);
+		services.AddDbContext<ValourDb>(options => { options.UseNpgsql(cnn); }, ServiceLifetime.Scoped);
 
         // Apply migrations if flag is set
         //if (Environment.GetEnvironmentVariable("APPLY_MIGRATIONS") == "true")
