@@ -1,0 +1,19 @@
+using Microsoft.Extensions.Options;
+using Projects;
+
+var builder = DistributedApplication.CreateBuilder(args);
+
+var postgres = builder.AddPostgres("valourgres")
+	.WithVolume("valour-postgres-data").WithPgAdmin();
+
+var valourDb = postgres.AddDatabase("valourdb");
+
+var redis = builder.AddRedis("redis").WithDataVolume("redis-data");
+
+var valourServer = builder.AddProject<Valour_Server>("valour-server")
+	.WaitFor(valourDb)
+	.WaitFor(redis)
+	.WithReference(valourDb)
+	.WithReference(redis);
+
+builder.Build().Run();

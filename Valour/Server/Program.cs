@@ -76,7 +76,10 @@ public partial class Program
                 x.ServerName = NodeConfig.Instance.Name;
             });
         }
-
+#if DEBUG //only include during debug until aspire is considered for production
+        // Aspire specific
+        builder.AddServiceDefaults();
+#endif
         // Set up services
         ConfigureServices(builder);
 
