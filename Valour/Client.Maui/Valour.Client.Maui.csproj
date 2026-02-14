@@ -77,6 +77,10 @@
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.3" />
         <PackageReference Include="Microsoft.Maui.Core" Version="10.0.31" />
         <PackageReference Include="Plugin.Firebase.CloudMessaging" Version="3.1.1" />
+    </ItemGroup>
+
+    <!-- Android-only packages -->
+    <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
         <PackageReference Include="Xamarin.GooglePlayServices.Base" Version="118.9.0" />
         <PackageReference Include="Xamarin.GooglePlayServices.Basement" Version="118.9.0" />
     </ItemGroup>
