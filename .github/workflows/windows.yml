@@ -1,0 +1,105 @@
+name: Windows Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Valour/Client.Maui/**'
+      - 'Valour/Client/**'
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version_changed: ${{ steps.check.outputs.changed }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Check if release already exists
+      id: check
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        CURRENT=$(grep -oP '(?<=<ApplicationDisplayVersion>)[^<]+' Valour/Client.Maui/Valour.Client.Maui.csproj)
+        echo "version=$CURRENT" >> $GITHUB_OUTPUT
+
+        if gh release view "v$CURRENT" > /dev/null 2>&1; then
+          echo "Release v$CURRENT already exists, skipping build"
+          echo "changed=false" >> $GITHUB_OUTPUT
+        else
+          echo "No release for v$CURRENT, will build"
+          echo "changed=true" >> $GITHUB_OUTPUT
+        fi
+
+  build-windows:
+    needs: check-version
+    if: needs.check-version.outputs.version_changed == 'true'
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Install MAUI workload
+      run: dotnet workload install maui-windows
+
+    - name: Get short SHA
+      id: short-sha
+      shell: bash
+      run: echo "short_sha=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+    - name: Replace asset version hashes
+      uses: mingjun97/file-regex-replace@v1
+      with:
+        regex: '\$\(SHORTHASH\)'
+        replacement: '${{ steps.short-sha.outputs.short_sha }}'
+        flags: "g"
+        include: '\.(js|cs|razor|cshtml|html)$'
+        exclude: '.^'
+        encoding: 'utf8'
+        path: '.'
+
+    - name: Restore dependencies
+      run: |
+        dotnet restore Valour/BuildTools/CssBundler/CssBundler.csproj
+        dotnet restore Valour/Client.Maui/Valour.Client.Maui.csproj
+
+    - name: Build Client (generates CSS bundle)
+      run: dotnet build Valour/Client/Valour.Client.csproj -c Release
+
+    - name: Publish Windows App
+      run: >
+        dotnet publish Valour/Client.Maui/Valour.Client.Maui.csproj
+        -f net10.0-windows10.0.19041.0
+        -c Release
+        -o ./artifacts/windows
+
+    # TODO: Enable once SSL.com cert is validated and eSigner is enrolled
+    # - name: Sign executable
+    #   uses: sslcom/esigner-codesign@develop
+    #   with:
+    #     command: sign
+    #     username: ${{ secrets.ES_USERNAME }}
+    #     password: ${{ secrets.ES_PASSWORD }}
+    #     credential_id: ${{ secrets.ES_CREDENTIAL_ID }}
+    #     totp_secret: ${{ secrets.ES_TOTP_SECRET }}
+    #     file_path: ./artifacts/windows/Valour.Client.Maui.exe
+
+    - name: Zip artifacts
+      shell: pwsh
+      run: Compress-Archive -Path ./artifacts/windows/* -DestinationPath ./artifacts/Valour-Windows-v${{ needs.check-version.outputs.version }}.zip
+
+    - name: Create or update GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ needs.check-version.outputs.version }}
+        name: Valour v${{ needs.check-version.outputs.version }}
+        files: ./artifacts/Valour-Windows-v${{ needs.check-version.outputs.version }}.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

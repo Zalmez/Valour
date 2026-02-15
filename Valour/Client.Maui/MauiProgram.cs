@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Components.WebView.Maui;
 using Microsoft.Extensions.Logging;
 using Microsoft.Maui.LifecycleEvents;
-using Plugin.Firebase.CloudMessaging;
 #if ANDROID
+using Plugin.Firebase.CloudMessaging;
 using Plugin.Firebase.Core.Platforms.Android;
 #endif
 using Valour.Client;
@@ -46,6 +46,10 @@ public static class MauiProgram
             webView.Settings.MediaPlaybackRequiresUserGesture = false;
             webView.SetWebChromeClient(new AudioPermissionChromeClient());
         });
+#endif
+
+#if WINDOWS
+        builder.Services.AddSingleton<WindowsToastService>();
 #endif
         builder.Services.AddSingleton<IAppStorage, MauiStorageService>();
         builder.Services.AddSingleton<IPushNotificationService, MauiPushNotificationService>();

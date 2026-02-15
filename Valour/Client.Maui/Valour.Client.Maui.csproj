@@ -40,6 +40,7 @@
 
         <!-- Versions -->
         <ApplicationDisplayVersion>0.4.2.5</ApplicationDisplayVersion>
+        <ApplicationDisplayVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">0.4.2</ApplicationDisplayVersion>
         <ApplicationVersion>16</ApplicationVersion>
 
         <!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
@@ -75,13 +76,19 @@
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="10.0.31" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.3" />
         <PackageReference Include="Microsoft.Maui.Core" Version="10.0.31" />
-        <PackageReference Include="Plugin.Firebase.CloudMessaging" Version="3.1.1" />
         <PackageReference Include="Sentry.Maui" Version="6.1.0" />
-        <PackageReference Include="Xamarin.GooglePlayServices.Base" Version="118.9.0" />
-        <PackageReference Include="Xamarin.GooglePlayServices.Basement" Version="118.9.0" />
     </ItemGroup>
 
-    <ItemGroup>
+    <ItemGroup Condition="$(TargetFramework.Contains('windows'))">
+        <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" Version="7.1.3" />
+        <PackageReference Include="H.NotifyIcon.WinUI" Version="2.4.1" />
+        <Content Include="Platforms\Windows\trayicon.ico" CopyToOutputDirectory="PreserveNewest" Link="Platforms\Windows\trayicon.ico" />
+    </ItemGroup>
+
+    <ItemGroup Condition="$(TargetFramework.Contains('android'))">
+        <PackageReference Include="Plugin.Firebase.CloudMessaging" Version="3.1.1" />
+        <PackageReference Include="Xamarin.GooglePlayServices.Base" Version="118.9.0" />
+        <PackageReference Include="Xamarin.GooglePlayServices.Basement" Version="118.9.0" />
         <GoogleServicesJson Include="Platforms\Android\google-services.json" Condition="Exists('Platforms\Android\google-services.json')" />
     </ItemGroup>
 
