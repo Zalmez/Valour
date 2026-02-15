@@ -39,9 +39,8 @@
         <ApplicationId>gg.valour.app</ApplicationId>
 
         <!-- Versions -->
-        <ApplicationDisplayVersion>0.4.2.5</ApplicationDisplayVersion>
-        <ApplicationDisplayVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">0.4.2</ApplicationDisplayVersion>
-        <ApplicationVersion>16</ApplicationVersion>
+        <ApplicationDisplayVersion>0.4.3</ApplicationDisplayVersion>
+        <ApplicationVersion>17</ApplicationVersion>
 
         <!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
         <WindowsPackageType>None</WindowsPackageType>
