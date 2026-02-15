@@ -68,7 +68,6 @@ jobs:
     - name: Restore dependencies
       run: |
         dotnet restore Valour/BuildTools/CssBundler/CssBundler.csproj
-        dotnet restore Valour/Client.Maui/Valour.Client.Maui.csproj -p:TargetFrameworks=net10.0-windows10.0.19041.0
         dotnet restore Valour/Client/Valour.Client.csproj
 
     - name: Build Client (generates CSS bundle)
@@ -80,7 +79,6 @@ jobs:
         -f net10.0-windows10.0.19041.0
         -c Release
         -o ./artifacts/windows
-        -p:TargetFrameworks=net10.0-windows10.0.19041.0
 
     # TODO: Enable once SSL.com cert is validated and eSigner is enrolled
     # - name: Sign executable
