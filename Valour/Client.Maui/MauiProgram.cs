@@ -48,12 +48,13 @@ public static class MauiProgram
         });
 #endif
 
-#if WINDOWS
-        builder.Services.AddSingleton<WindowsToastService>();
-#endif
         builder.Services.AddSingleton<IAppStorage, MauiStorageService>();
         builder.Services.AddSingleton<IPushNotificationService, MauiPushNotificationService>();
         builder.Services.AddValourClientServices("https://app.valour.gg");
+#if WINDOWS
+        builder.Services.AddSingleton<WindowsToastService>();
+        builder.Services.AddSingleton<INativeWindowService, MauiNativeWindowService>();
+#endif
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();

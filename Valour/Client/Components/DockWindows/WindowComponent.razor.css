@@ -171,6 +171,10 @@
     color: lime;
 }
 
+.tab-buttons .popout:hover {
+    color: #0ff;
+}
+
 .tab-buttons .minus:hover {
     color: red;
 }

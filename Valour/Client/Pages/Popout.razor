@@ -1,0 +1,89 @@
+@page "/popout/{PopoutKey}"
+@inject ValourClient Client
+
+@if (!Client.IsLoggedIn)
+{
+    <LoginComponent FromVerified="false"></LoginComponent>
+    return;
+}
+
+<ToastContainer>
+    <ModalRoot>
+        <ContextMenuRoot>
+            @if (!string.IsNullOrWhiteSpace(_error))
+            {
+                <div class="popout-error">
+                    <span>@_error</span>
+                </div>
+            }
+            else if (_tab?.Content is null)
+            {
+                <Loading Title="Opening window..." Spin="@true" />
+            }
+            else
+            {
+                <div class="popout-shell">
+                    @(_tab.Content.RenderContent)
+                </div>
+            }
+        </ContextMenuRoot>
+    </ModalRoot>
+</ToastContainer>
+
+@code {
+    [Parameter]
+    public string? PopoutKey { get; set; }
+
+    private WindowTab? _tab;
+    private string? _error;
+    private bool _triedOpen;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_triedOpen || !Client.IsLoggedIn)
+            return;
+
+        _triedOpen = true;
+        await TryOpenPopoutTab();
+        StateHasChanged();
+    }
+
+    private async Task TryOpenPopoutTab()
+    {
+        if (string.IsNullOrWhiteSpace(PopoutKey))
+        {
+            _error = "Missing tab key.";
+            return;
+        }
+
+        if (!NativeTabPopoutStore.TryTake(PopoutKey, out var tabState))
+        {
+            _error = "This popped out tab is no longer available.";
+            return;
+        }
+
+        if (tabState is null)
+        {
+            _error = "Could not read the popped out tab state.";
+            return;
+        }
+
+        try
+        {
+            var adapter = new WindowSaveLoadAdapter(Client);
+            _tab = await adapter.Import(tabState);
+        }
+        catch
+        {
+            _error = "Could not load this tab in a separate window.";
+            return;
+        }
+
+        if (_tab?.Content is null)
+        {
+            _error = "Could not open this tab.";
+            return;
+        }
+
+    }
+}

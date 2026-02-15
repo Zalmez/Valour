@@ -1,4 +1,5 @@
-﻿@implements IAsyncDisposable
+@implements IAsyncDisposable
+@inject INativeWindowService NativeWindowService
 
 <div id="tab-@WindowTab.Id"
      class="window-wrapper @WindowWrapperClasses"
@@ -27,6 +28,12 @@
                 <div class="tab-buttons"
                      @onclick:stopPropagation="true"
                      @onmousedown:stopPropagation="true">
+                    @if (CanPopOutToNativeWindow)
+                    {
+                        <span class="popout" title="Pop out into a new window" @onclick="@OnClickPopout">
+                            <i class="bi bi-box-arrow-up-right"></i>
+                        </span>
+                    }
                     <span class="minus" @onclick="@OnClickMinus">
                         <i class="bi bi-dash-circle-fill"></i>
                     </span>
@@ -103,6 +110,7 @@
     public bool IsActive => Layout?.FocusedTab == WindowTab;
     public bool IsFloating => WindowTab.IsFloating;
     private bool IsLastTab => Layout is not null && (Layout.Tabs.Last().Id == WindowTab.Id);
+    private bool CanPopOutToNativeWindow => NativeWindowService.SupportsTabPopout && !DeviceInfo.IsMobile;
 
     ///////////////////////
     // Private properties //
@@ -290,6 +298,27 @@
     
     private async Task OnClickMinus()
     {
+        await CloseAsync();
+    }
+
+    private async Task OnClickPopout()
+    {
+        if (!CanPopOutToNativeWindow || WindowTab?.Content is null)
+            return;
+
+        var adapter = new WindowSaveLoadAdapter(Dock.Client);
+        var exported = adapter.Export(new List<WindowTab> { WindowTab }).FirstOrDefault();
+        if (exported is null)
+            return;
+
+        var popoutKey = NativeTabPopoutStore.Add(exported);
+        var opened = await NativeWindowService.TryOpenTabPopoutWindow(popoutKey, Title);
+        if (!opened)
+        {
+            NativeTabPopoutStore.TryTake(popoutKey, out _);
+            return;
+        }
+
         await CloseAsync();
     }
 
