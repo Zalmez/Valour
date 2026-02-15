@@ -403,8 +403,18 @@
     background: var(--slight-tint);
 }
 
+.participant-mod-btn.toggled {
+    opacity: 1;
+    background: rgba(250, 204, 21, 0.15);
+    color: var(--p-yellow);
+}
+
 .participant-mod-btn.warn:hover {
     color: var(--p-yellow);
+}
+
+.participant-mod-btn.warn.toggled:hover {
+    background: rgba(250, 204, 21, 0.2);
 }
 
 .participant-mod-btn.danger:hover {

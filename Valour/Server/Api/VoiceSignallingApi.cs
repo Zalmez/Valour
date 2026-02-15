@@ -10,6 +10,7 @@ public class VoiceSignallingApi
     {
         app.MapPost("api/voice/realtimekit/token/{channelId:long}", GetRealtimeKitToken);
         app.MapPost("api/voice/realtimekit/channels/{channelId:long}/participants/{targetUserId:long}/mute", MuteParticipant);
+        app.MapPost("api/voice/realtimekit/channels/{channelId:long}/participants/{targetUserId:long}/unmute", UnmuteParticipant);
         app.MapPost("api/voice/realtimekit/channels/{channelId:long}/participants/{targetUserId:long}/kick", KickParticipant);
     }
 
@@ -103,6 +104,39 @@ public class VoiceSignallingApi
                 ModeratorUserId = validation.ActorMember!.UserId,
                 TargetUserId = validation.TargetMember.UserId,
                 Action = VoiceModerationActionType.Mute
+            });
+
+        return Results.Ok();
+    }
+
+    public static async Task<IResult> UnmuteParticipant(
+        ValourDb db,
+        TokenService tokenService,
+        PlanetMemberService memberService,
+        NodeLifecycleService nodeLifecycleService,
+        long channelId,
+        long targetUserId)
+    {
+        var validation = await ValidateModerationRequestAsync(
+            db,
+            tokenService,
+            memberService,
+            channelId,
+            targetUserId,
+            VoiceChannelPermissions.MuteMembers);
+
+        if (validation.Error is not null)
+            return validation.Error;
+
+        await nodeLifecycleService.RelayUserEventAsync(
+            validation.TargetMember!.UserId,
+            NodeLifecycleService.NodeEventType.VoiceModeration,
+            new VoiceModerationEvent
+            {
+                ChannelId = validation.Channel!.Id,
+                ModeratorUserId = validation.ActorMember!.UserId,
+                TargetUserId = validation.TargetMember.UserId,
+                Action = VoiceModerationActionType.Unmute
             });
 
         return Results.Ok();

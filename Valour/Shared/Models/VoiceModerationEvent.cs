@@ -3,7 +3,8 @@ namespace Valour.Shared.Models;
 public enum VoiceModerationActionType
 {
     Mute = 0,
-    Kick = 1
+    Kick = 1,
+    Unmute = 2
 }
 
 public class VoiceModerationEvent
