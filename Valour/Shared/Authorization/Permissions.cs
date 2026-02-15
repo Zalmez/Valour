@@ -429,6 +429,8 @@ public enum VoiceChannelPermissionsEnum
     Speak,
     ManageChannel,
     ManagePermissions,
+    MuteMembers,
+    KickMembers,
 }
 
 /// <summary>
@@ -454,6 +456,8 @@ public static class VoiceChannelPermissions
     public static readonly VoiceChannelPermission Speak;
     public static readonly VoiceChannelPermission ManageChannel;
     public static readonly VoiceChannelPermission ManagePermissions;
+    public static readonly VoiceChannelPermission MuteMembers;
+    public static readonly VoiceChannelPermission KickMembers;
 
     static VoiceChannelPermissions()
     {
@@ -463,6 +467,8 @@ public static class VoiceChannelPermissions
         Speak = new VoiceChannelPermission(0x04, "Speak", "Allow members to speak in the channel.");
         ManageChannel = new VoiceChannelPermission(ChannelPermissions.ManageValue, "Manage", "Allow members to manage the channel's details.");
         ManagePermissions = new VoiceChannelPermission(ChannelPermissions.PermissionsValue, "Permissions", "Allow members to manage permissions for the channel.");
+        MuteMembers = new VoiceChannelPermission(0x20, "Mute Members", "Allow members to mute other members in this voice channel.");
+        KickMembers = new VoiceChannelPermission(0x40, "Kick Members", "Allow members to remove other members from this voice channel.");
 
         Permissions = new VoiceChannelPermission[]
         {
@@ -471,7 +477,9 @@ public static class VoiceChannelPermissions
                 Join,
                 Speak,
                 ManageChannel,
-                ManagePermissions
+                ManagePermissions,
+                MuteMembers,
+                KickMembers
         };
 
         Default = Permission.CreateCode(View, Join, Speak);

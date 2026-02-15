@@ -233,6 +233,8 @@ public class NodeLifecycleService
         Transaction,
         DirectMessage,
         DirectMessageEdit,
+        DirectMessageDelete,
+        VoiceModeration,
         Notification,
         Friend,
         NotificationsCleared,
@@ -307,6 +309,18 @@ public class NodeLifecycleService
                 OnRelayDirectMessageEdit(message, data.TargetUser);
                 break;
             }
+            case NodeEventType.DirectMessageDelete:
+            {
+                var message = (Message) data.Payload;
+                OnRelayDirectMessageDelete(message, data.TargetUser);
+                break;
+            }
+            case NodeEventType.VoiceModeration:
+            {
+                var moderation = (VoiceModerationEvent)data.Payload;
+                OnRelayVoiceModerationAction(moderation, data.TargetUser);
+                break;
+            }
             case NodeEventType.Notification:
             {
                 var notification = (Notification) data.Payload;
@@ -341,6 +355,16 @@ public class NodeLifecycleService
     private void OnRelayDirectMessageEdit(Message message, long targetUser)
     {
         _ = _hub.Clients.Group($"u-{targetUser}").SendAsync("RelayDirectEdit", message);
+    }
+
+    private void OnRelayDirectMessageDelete(Message message, long targetUser)
+    {
+        _ = _hub.Clients.Group($"u-{targetUser}").SendAsync("DeleteMessage", message);
+    }
+
+    private void OnRelayVoiceModerationAction(VoiceModerationEvent moderation, long targetUser)
+    {
+        _ = _hub.Clients.Group($"u-{targetUser}").SendAsync("Voice-Moderation-Action", moderation);
     }
     
     private void OnRelayNotification(Notification notif, long targetUser)

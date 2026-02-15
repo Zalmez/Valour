@@ -12,7 +12,7 @@
             <select class="form-control" @bind="_action.ActionType">
                 @foreach (AutomodActionType t in Enum.GetValues<AutomodActionType>())
                 {
-                    <option value="@t">@t</option>
+                    <option value="@t">@GetActionTypeLabel(t)</option>
                 }
             </select>
         </div>
@@ -111,6 +111,15 @@
     private bool ShowExpires => _action.ActionType == AutomodActionType.Ban;
     private bool ShowRole => _action.ActionType == AutomodActionType.AddRole || _action.ActionType == AutomodActionType.RemoveRole;
     private bool ShowMessage => _action.ActionType == AutomodActionType.Respond || _action.ActionType == AutomodActionType.Kick || _action.ActionType == AutomodActionType.Ban;
+
+    private static string GetActionTypeLabel(AutomodActionType actionType) => actionType switch
+    {
+        AutomodActionType.AddRole => "Add Role",
+        AutomodActionType.RemoveRole => "Remove Role",
+        AutomodActionType.DeleteMessage => "Delete Message",
+        AutomodActionType.BlockMessage => "Block Message",
+        _ => actionType.ToString()
+    };
 
     private Task OnRoleChanged(PlanetRole role)
     {

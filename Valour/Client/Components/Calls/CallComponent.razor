@@ -27,6 +27,8 @@
     private readonly SemaphoreSlim _joinLock = new(1, 1);
     private static readonly TimeSpan JoinTimeout = TimeSpan.FromSeconds(25);
     private static readonly TimeSpan LeaveTimeout = TimeSpan.FromSeconds(8);
+    private readonly string _voiceSessionId = Guid.NewGuid().ToString("N");
+    private readonly object _memberPrefetchLock = new();
 
     private bool _joined;
     private bool _connecting;
@@ -40,6 +42,12 @@
     private CancellationTokenSource? _participantRefreshLoopCts;
     private Task? _participantRefreshLoopTask;
     private int _participantRefreshInProgress;
+    private readonly HashSet<long> _participantMemberPrefetchInFlight = new();
+    private IDisposable? _voiceSessionReplaceSubscription;
+    private IDisposable? _voiceModerationSubscription;
+
+    private bool _canMuteParticipants;
+    private bool _canKickParticipants;
 
     public static CallComponent? Instance { get; private set; }
 
@@ -111,7 +119,17 @@
                         {
                             <div class="@GetParticipantClass(participant)" @key="participant.PeerId">
                                 <div class="participant-info">
-                                    <UserInfoComponent UserId="@participant.UserId" Style="width: 100%;" />
+                                    @{
+                                        var member = GetParticipantMember(participant.UserId);
+                                    }
+                                    @if (member is not null)
+                                    {
+                                        <UserInfoComponent Member="@member" Style="width: 100%;" />
+                                    }
+                                    else
+                                    {
+                                        <UserInfoComponent UserId="@participant.UserId" Style="width: 100%;" />
+                                    }
                                 </div>
                                 @if (participant.IsSelf)
                                 {
@@ -137,6 +155,28 @@
                                             <i class="bi @GetVolumeIcon(volume)"></i>
                                         </button>
                                     </div>
+
+                                    @if ((_canMuteParticipants || _canKickParticipants) && participant.UserId > 0)
+                                    {
+                                        <div class="participant-moderation">
+                                            @if (_canMuteParticipants)
+                                            {
+                                                <button class="participant-mod-btn warn"
+                                                        @onmousedown="() => OnClickMuteParticipant(participant)"
+                                                        title="Mute participant">
+                                                    <i class="bi bi-mic-mute-fill"></i>
+                                                </button>
+                                            }
+                                            @if (_canKickParticipants)
+                                            {
+                                                <button class="participant-mod-btn danger"
+                                                        @onmousedown="() => OnClickKickParticipant(participant)"
+                                                        title="Kick from voice">
+                                                    <i class="bi bi-door-open-fill"></i>
+                                                </button>
+                                            }
+                                        </div>
+                                    }
                                 }
                                 <audio id="@GetParticipantAudioElementId(participant.PeerId)" class="participant-audio" autoplay playsinline></audio>
                             </div>
@@ -159,10 +199,30 @@
         Instance = this;
         DevicePreferences.OnMicrophoneDeviceIdChanged += OnMicrophoneSelected;
         BrowserUtils.Focused += OnAppResumed;
+        SubscribeToVoiceHubEvents();
+    }
+
+    private void SubscribeToVoiceHubEvents()
+    {
+        var hub = Client.PrimaryNode?.HubConnection;
+        if (hub is null)
+            return;
+
+        _voiceSessionReplaceSubscription?.Dispose();
+        _voiceSessionReplaceSubscription = hub.On<VoiceSessionReplaceEvent>(
+            "Voice-Session-Replace",
+            OnVoiceSessionReplace);
+
+        _voiceModerationSubscription?.Dispose();
+        _voiceModerationSubscription = hub.On<VoiceModerationEvent>(
+            "Voice-Moderation-Action",
+            OnVoiceModerationAction);
     }
 
     public async Task Initialize(Channel channel)
     {
+        SubscribeToVoiceHubEvents();
+
         if (!ISharedChannel.VoiceChannelTypes.Contains(channel.ChannelType))
             return;
 
@@ -179,6 +239,7 @@
         {
             _error = null;
             ActiveChannel = channel;
+            await RefreshModerationPermissionsAsync(channel);
             _connecting = true;
             StateHasChanged();
 
@@ -188,7 +249,7 @@
             }
 
             var tokenResult = await Client.PrimaryNode.PostAsyncWithResponse<RealtimeKitVoiceTokenResponse>(
-                $"api/voice/realtimekit/token/{channel.Id}");
+                $"api/voice/realtimekit/token/{channel.Id}?sessionId={Uri.EscapeDataString(_voiceSessionId)}");
 
             if (!tokenResult.Success || tokenResult.Data is null || string.IsNullOrWhiteSpace(tokenResult.Data.AuthToken))
             {
@@ -258,6 +319,26 @@
         _audioEnabled = state.AudioEnabled;
     }
 
+    private async Task RefreshModerationPermissionsAsync(Channel channel)
+    {
+        _canMuteParticipants = false;
+        _canKickParticipants = false;
+
+        if (channel.PlanetId is null)
+            return;
+
+        try
+        {
+            _canMuteParticipants = await channel.HasPermissionAsync(Client.Me.Id, VoiceChannelPermissions.MuteMembers);
+            _canKickParticipants = await channel.HasPermissionAsync(Client.Me.Id, VoiceChannelPermissions.KickMembers);
+        }
+        catch
+        {
+            _canMuteParticipants = false;
+            _canKickParticipants = false;
+        }
+    }
+
     public async Task OnMicrophoneSelected(string id)
     {
         await SetMic(id);
@@ -283,6 +364,66 @@
                     await Initialize(channel);
             });
         }
+    }
+
+    private void OnVoiceSessionReplace(VoiceSessionReplaceEvent update)
+    {
+        if (update is null)
+            return;
+
+        if (string.Equals(update.SessionId, _voiceSessionId, StringComparison.Ordinal))
+            return;
+
+        _ = InvokeAsync(async () =>
+        {
+            if (ActiveChannel is null || ActiveChannel.Id != update.ChannelId)
+                return;
+
+            if (!_joined && !_connecting)
+                return;
+
+            _error = "Disconnected because this account joined this voice chat from another instance.";
+            await SafeLeaveRoomInternalAsync(closePanel: true);
+            StateHasChanged();
+        });
+    }
+
+    private void OnVoiceModerationAction(VoiceModerationEvent update)
+    {
+        if (update is null)
+            return;
+
+        _ = InvokeAsync(async () =>
+        {
+            if (ActiveChannel is null || ActiveChannel.Id != update.ChannelId)
+                return;
+
+            if (!_joined && !_connecting)
+                return;
+
+            switch (update.Action)
+            {
+                case VoiceModerationActionType.Mute:
+                    if (_rtk is not null && _joined && _audioEnabled)
+                    {
+                        try
+                        {
+                            await _rtk.DisableAudioAsync();
+                            await RefreshStateFromSdkAsync();
+                        }
+                        catch
+                        {
+                            // Ignore client-side mute failures from remote moderation commands.
+                        }
+                    }
+                    break;
+                case VoiceModerationActionType.Kick:
+                    await SafeLeaveRoomInternalAsync(closePanel: true);
+                    break;
+            }
+
+            StateHasChanged();
+        });
     }
 
     private async Task OnClickReconnect()
@@ -317,6 +458,36 @@
         }
 
         StateHasChanged();
+    }
+
+    private Task OnClickMuteParticipant(VoiceParticipantState participant) =>
+        SendVoiceModerationActionAsync(participant, "mute");
+
+    private Task OnClickKickParticipant(VoiceParticipantState participant) =>
+        SendVoiceModerationActionAsync(participant, "kick");
+
+    private async Task SendVoiceModerationActionAsync(VoiceParticipantState participant, string action)
+    {
+        if (ActiveChannel is null || participant is null || participant.IsSelf || participant.UserId <= 0)
+            return;
+
+        if (action == "mute" && !_canMuteParticipants)
+            return;
+
+        if (action == "kick" && !_canKickParticipants)
+            return;
+
+        var result = await Client.PrimaryNode.PostAsync(
+            $"api/voice/realtimekit/channels/{ActiveChannel.Id}/participants/{participant.UserId}/{action}",
+            new { });
+
+        if (!result.Success)
+        {
+            _error = string.IsNullOrWhiteSpace(result.Message)
+                ? $"Failed to {action} participant."
+                : result.Message;
+            StateHasChanged();
+        }
     }
 
     private void OnClickSettings()
@@ -373,7 +544,13 @@
         _audioEnabled = true;
         _participantVolumes = new Dictionary<string, int>();
         _participants = new List<VoiceParticipantState>();
+        _canMuteParticipants = false;
+        _canKickParticipants = false;
         _pendingParticipantAudioSync = false;
+        lock (_memberPrefetchLock)
+        {
+            _participantMemberPrefetchInFlight.Clear();
+        }
 
         AppLifecycle.NotifyCallEnded();
 
@@ -519,6 +696,7 @@
         {
             var snapshot = await _rtk.GetParticipantsSnapshotAsync();
             var nextParticipants = BuildParticipantState(snapshot);
+            QueueMissingParticipantMemberFetches(nextParticipants);
 
             if (AreParticipantsEqual(_participants, nextParticipants))
                 return;
@@ -609,6 +787,69 @@
         var idBytes = System.Text.Encoding.UTF8.GetBytes(normalizedPeerId);
         var idSuffix = Convert.ToHexString(idBytes).ToLowerInvariant();
         return $"voice-audio-{idSuffix}";
+    }
+
+    private PlanetMember? GetParticipantMember(long userId)
+    {
+        if (userId <= 0 || ActiveChannel?.PlanetId is null || ActiveChannel.Planet is null)
+            return null;
+
+        var key = new PlanetMemberKey(userId, ActiveChannel.PlanetId.Value);
+        if (!Client.Cache.MemberKeyToId.TryGetValue(key, out var memberId))
+            return null;
+
+        if (!ActiveChannel.Planet.Members.TryGet(memberId, out var member))
+            return null;
+
+        return member;
+    }
+
+    private void QueueMissingParticipantMemberFetches(IReadOnlyList<VoiceParticipantState> participants)
+    {
+        if (ActiveChannel?.PlanetId is null || ActiveChannel.Planet is null || participants.Count == 0)
+            return;
+
+        foreach (var userId in participants.Select(x => x.UserId).Where(x => x > 0).Distinct())
+        {
+            if (GetParticipantMember(userId) is not null)
+                continue;
+
+            bool added;
+            lock (_memberPrefetchLock)
+            {
+                added = _participantMemberPrefetchInFlight.Add(userId);
+            }
+
+            if (!added)
+                continue;
+
+            _ = FetchParticipantMemberAsync(userId);
+        }
+    }
+
+    private async Task FetchParticipantMemberAsync(long userId)
+    {
+        try
+        {
+            var activeChannel = ActiveChannel;
+            if (activeChannel?.Planet is null)
+                return;
+
+            await activeChannel.Planet.FetchMemberByUserAsync(userId);
+        }
+        catch
+        {
+            // Ignore lookup failures; user fallback rendering remains available.
+        }
+        finally
+        {
+            lock (_memberPrefetchLock)
+            {
+                _participantMemberPrefetchInFlight.Remove(userId);
+            }
+
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private List<VoiceParticipantState> BuildParticipantState(RealtimeKitParticipantsSnapshot? snapshot)
@@ -713,6 +954,10 @@
     {
         DevicePreferences.OnMicrophoneDeviceIdChanged -= OnMicrophoneSelected;
         BrowserUtils.Focused -= OnAppResumed;
+        _voiceSessionReplaceSubscription?.Dispose();
+        _voiceSessionReplaceSubscription = null;
+        _voiceModerationSubscription?.Dispose();
+        _voiceModerationSubscription = null;
         if (ReferenceEquals(Instance, this))
         {
             Instance = null;

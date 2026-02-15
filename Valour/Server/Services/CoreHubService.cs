@@ -172,6 +172,14 @@ public class CoreHubService
         }
     }
 
+    public async Task RelayDirectMessageDelete(Message message, NodeLifecycleService nodeLifecycleService, List<long> userIds)
+    {
+        foreach (var userId in userIds)
+        {
+            await nodeLifecycleService.RelayUserEventAsync(userId, NodeLifecycleService.NodeEventType.DirectMessageDelete, message);
+        }
+    }
+
     public void RelayNotification(Notification notif, NodeLifecycleService nodeLifecycleService)
     {
         _ = nodeLifecycleService.RelayUserEventAsync(notif.UserId, NodeLifecycleService.NodeEventType.Notification, notif);
@@ -198,6 +206,9 @@ public class CoreHubService
 
     public void NotifyUserChannelStateUpdate(long userId, UserChannelState state) =>
         _ = _hub.Clients.Group($"u-{userId}").SendAsync("UserChannelState-Update", state);
+
+    public void NotifyVoiceSessionReplace(long userId, VoiceSessionReplaceEvent update) =>
+        _ = _hub.Clients.Group($"u-{userId}").SendAsync("Voice-Session-Replace", update);
 
     public void NotifyPlanetItemChange<T>(long planetId, T model, int flags = 0) =>
         _ = _hub.Clients.Group($"p-{planetId}").SendAsync($"{typeof(T).Name}-Update", model, flags);

@@ -266,9 +266,11 @@ public class MessageService
         {
             if (!await _automodService.ScanMessageAsync(message, memberModel))
                 return TaskResult<Message>.FromFailure("Message blocked by automod.");
-        } catch (Exception e)
+        }
+        catch (Exception e)
         {
             _logger.LogError(e, "Failed to scan message with automod");
+            return TaskResult<Message>.FromFailure("Automod scan failed. Message was not posted.");
         }
 
         // Add to chat caches
@@ -505,7 +507,16 @@ public class MessageService
             }
             else
             {
-                return TaskResult.FromFailure("Message not found");
+                var queued = PlanetMessageWorker.GetQueuedMessage(messageId);
+                if (queued is not null)
+                {
+                    message = queued;
+                    PlanetMessageWorker.RemoveFromQueue(queued);
+                }
+                else
+                {
+                    return TaskResult.FromFailure("Message not found");
+                }
             }
         }
         else
@@ -537,7 +548,13 @@ public class MessageService
         }
         else
         {
-            // TODO: Direct message deletion event
+            var channelUserIds = await _db.ChannelMembers
+                .AsNoTracking()
+                .Where(x => x.ChannelId == message.ChannelId)
+                .Select(x => x.UserId)
+                .ToListAsync();
+
+            await _coreHubService.RelayDirectMessageDelete(message, _nodeLifecycleService, channelUserIds);
         }
 
         return TaskResult.SuccessResult;

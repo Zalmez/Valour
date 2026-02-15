@@ -121,6 +121,8 @@ public class DiscordImportService
         if ((discordPerms & (1L << 21)) != 0) voice |= 0x04; // SPEAK → Speak
         if ((discordPerms & (1L << 4)) != 0)  voice |= 0x08; // MANAGE_CHANNELS → ManageChannel
         if ((discordPerms & (1L << 28)) != 0) voice |= 0x10; // MANAGE_ROLES → ManagePermissions
+        if ((discordPerms & (1L << 22)) != 0) voice |= 0x20; // MUTE_MEMBERS → MuteMembers
+        if ((discordPerms & (1L << 24)) != 0) voice |= 0x40; // MOVE_MEMBERS → KickMembers (best match)
 
         return (planet, chat, category, voice, isAdmin);
     }
@@ -158,6 +160,8 @@ public class DiscordImportService
                 MapChatBit(allow, deny, 1L << 21, 0x04, ref code, ref mask); // SPEAK → Speak
                 MapChatBit(allow, deny, 1L << 4,  0x08, ref code, ref mask); // MANAGE_CHANNELS → ManageChannel
                 MapChatBit(allow, deny, 1L << 28, 0x10, ref code, ref mask); // MANAGE_ROLES → ManagePermissions
+                MapChatBit(allow, deny, 1L << 22, 0x20, ref code, ref mask); // MUTE_MEMBERS → MuteMembers
+                MapChatBit(allow, deny, 1L << 24, 0x40, ref code, ref mask); // MOVE_MEMBERS → KickMembers
                 break;
         }
 

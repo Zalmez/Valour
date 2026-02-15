@@ -278,6 +278,13 @@
     gap: 2px;
 }
 
+.participant-moderation {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 2px;
+}
+
 .participant-volume-slider {
     -webkit-appearance: none;
     appearance: none;
@@ -367,6 +374,41 @@
 
 .participant-volume-btn.muted:hover {
     background: rgba(205, 94, 94, 0.12);
+}
+
+.participant-mod-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--font-color);
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0.35;
+    transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+    flex-shrink: 0;
+    outline: none;
+}
+
+.voice-participant:hover .participant-mod-btn {
+    opacity: 0.65;
+}
+
+.participant-mod-btn:hover {
+    opacity: 1 !important;
+    background: var(--slight-tint);
+}
+
+.participant-mod-btn.warn:hover {
+    color: var(--p-yellow);
+}
+
+.participant-mod-btn.danger:hover {
+    color: var(--p-red);
 }
 
 /* Mobile: always show volume controls */
