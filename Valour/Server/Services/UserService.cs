@@ -917,6 +917,11 @@ public class UserService
                 .Where(x => x.AuthorUserId == dbUser.Id)
                 .ExecuteDeleteAsync();
 
+            // Remove old planet role members (before planet members, since role members FK to members)
+            await _db.OldPlanetRoleMembers.IgnoreQueryFilters()
+                .Where(x => x.UserId == dbUser.Id)
+                .ExecuteDeleteAsync();
+
             // Remove planet membership
             var members = _db.PlanetMembers.IgnoreQueryFilters().Where(x => x.UserId == dbUser.Id);
             _db.PlanetMembers.RemoveRange(members);
