@@ -80,7 +80,18 @@ jobs:
         -c Release
         -o ./artifacts/windows
         -p:RuntimeIdentifierOverride=win10-x64
+        -p:SelfContained=true
+        -p:PublishSingleFile=true
+        -p:IncludeNativeLibrariesForSelfExtract=true
+        -p:EnableCompressionInSingleFile=true
         -p:WindowsAppSDKSelfContained=true
+
+    - name: Verify EXE artifact
+      shell: pwsh
+      run: |
+        if (!(Test-Path "./artifacts/windows/Valour.exe")) {
+          throw "Expected ./artifacts/windows/Valour.exe was not produced."
+        }
 
     # TODO: Enable once SSL.com cert is validated and eSigner is enrolled
     # - name: Sign executable
@@ -93,15 +104,11 @@ jobs:
     #     totp_secret: ${{ secrets.ES_TOTP_SECRET }}
     #     file_path: ./artifacts/windows/Valour.exe
 
-    - name: Zip artifacts
-      shell: pwsh
-      run: Compress-Archive -Path ./artifacts/windows/* -DestinationPath ./artifacts/Valour-Windows-v${{ needs.check-version.outputs.version }}.zip
-
     - name: Create or update GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ needs.check-version.outputs.version }}
         name: Valour v${{ needs.check-version.outputs.version }}
-        files: ./artifacts/Valour-Windows-v${{ needs.check-version.outputs.version }}.zip
+        files: ./artifacts/windows/Valour.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
