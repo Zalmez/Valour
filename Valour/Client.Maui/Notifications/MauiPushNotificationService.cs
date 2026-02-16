@@ -12,6 +12,7 @@ namespace Valour.Client.Maui.Notifications;
 #if ANDROID
 public class MauiPushNotificationService : IPushNotificationService
 {
+    private const string PushSubscribedPreferenceKey = "push_subscribed";
     private readonly ValourClient _client;
 
     public MauiPushNotificationService(ValourClient client)
@@ -81,7 +82,7 @@ public class MauiPushNotificationService : IPushNotificationService
                 };
             }
 
-            Preferences.Set("push_subscribed", true);
+            Preferences.Default.Set(PushSubscribedPreferenceKey, true);
 
             return new PushSubscriptionResult
             {
@@ -124,11 +125,14 @@ public class MauiPushNotificationService : IPushNotificationService
                 await _client.PrimaryNode.PostAsync("api/notifications/unsubscribe", pushNotificationSubscription);
             }
 
-            Preferences.Set("push_subscribed", false);
         }
         catch (Exception)
         {
             // Best-effort unsubscribe
+        }
+        finally
+        {
+            Preferences.Default.Set(PushSubscribedPreferenceKey, false);
         }
     }
 
@@ -168,9 +172,49 @@ public class MauiPushNotificationService : IPushNotificationService
         }
     }
 
-    public Task<bool> IsNotificationsEnabledAsync()
+    public async Task<bool> IsNotificationsEnabledAsync()
     {
-        return Task.FromResult(Preferences.Get("push_subscribed", false));
+        var locallySubscribed = Preferences.Default.Get(PushSubscribedPreferenceKey, false);
+
+        if (!_client.IsLoggedIn || _client.PrimaryNode is null)
+            return locallySubscribed;
+
+        try
+        {
+            var permissionState = await GetPermissionStateAsync();
+            if (permissionState == "denied")
+            {
+                Preferences.Default.Set(PushSubscribedPreferenceKey, false);
+                return false;
+            }
+
+            var token = await CrossFirebaseCloudMessaging.Current.GetTokenAsync();
+            if (string.IsNullOrWhiteSpace(token))
+                return locallySubscribed;
+
+            var pushNotificationSubscription = new PushNotificationSubscription
+            {
+                UserId = _client.Me.Id,
+                Endpoint = token,
+                Key = "",
+                Auth = "",
+                DeviceType = NotificationDeviceType.AndroidFcm,
+            };
+
+            var result = await _client.PrimaryNode.PostAsyncWithResponse<bool>(
+                "api/notifications/subscribed",
+                pushNotificationSubscription);
+
+            if (!result.Success)
+                return locallySubscribed;
+
+            Preferences.Default.Set(PushSubscribedPreferenceKey, result.Data);
+            return result.Data;
+        }
+        catch (Exception)
+        {
+            return locallySubscribed;
+        }
     }
 
     public async Task<string> GetPermissionStateAsync()

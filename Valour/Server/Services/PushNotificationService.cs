@@ -57,8 +57,11 @@ public class PushNotificationService
         if (existingUserSub is not null)
         {
             // Update existing subscription
+            existingUserSub.UserId = subscription.UserId;
+            existingUserSub.DeviceType = subscription.DeviceType;
             existingUserSub.Auth = subscription.Auth;
             existingUserSub.Key = subscription.Key;
+            existingUserSub.ExpiresAt = DateTime.UtcNow.AddDays(7);
             
             _db.PushNotificationSubscriptions.Update(existingUserSub);
         }
@@ -72,6 +75,20 @@ public class PushNotificationService
         }
         
         await _db.SaveChangesAsync();
+    }
+
+    public async Task<bool> IsSubscribedAsync(long userId, string endpoint, NotificationDeviceType deviceType)
+    {
+        if (string.IsNullOrWhiteSpace(endpoint))
+            return false;
+
+        return await _db.PushNotificationSubscriptions
+            .AsNoTracking()
+            .AnyAsync(x =>
+                x.UserId == userId &&
+                x.Endpoint == endpoint &&
+                x.DeviceType == deviceType &&
+                x.ExpiresAt > DateTime.UtcNow);
     }
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

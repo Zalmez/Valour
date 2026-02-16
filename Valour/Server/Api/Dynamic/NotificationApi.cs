@@ -45,6 +45,25 @@ public class NotificationApi
 
         return ValourResult.Ok();
     }
+
+    [ValourRoute(HttpVerbs.Post, "api/notifications/subscribed")]
+    [UserRequired]
+    public static async Task<IResult> IsSubscribedAsync(
+        [FromBody] PushNotificationSubscription subscription,
+        PushNotificationService pushNotificationService,
+        UserService userService)
+    {
+        var userId = await userService.GetCurrentUserIdAsync();
+        if (subscription.UserId != userId)
+            return ValourResult.Forbid("You do not have permission to check subscriptions for another user");
+
+        var isSubscribed = await pushNotificationService.IsSubscribedAsync(
+            userId,
+            subscription.Endpoint,
+            subscription.DeviceType);
+
+        return Results.Json(isSubscribed);
+    }
     
     [ValourRoute(HttpVerbs.Get, "api/notifications/self/unread/all")]
     [UserRequired(UserPermissionsEnum.FullControl)] // Notifications could contain anything so we require all permissions
