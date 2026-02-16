@@ -18,7 +18,7 @@ public partial class MainPage : ContentPage
         {
             // External URLs must be opened in the system browser.
             // Without this, all link clicks are silently swallowed by the WebView.
-            if (e.Url.Host != "0.0.0.0")
+            if (e.Url.Host != "0.0.0.0" && e.Url.Host != "0.0.0.1")
             {
                 e.UrlLoadingStrategy = Microsoft.AspNetCore.Components.WebView.UrlLoadingStrategy.OpenExternally;
             }
