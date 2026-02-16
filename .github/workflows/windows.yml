@@ -81,17 +81,71 @@ jobs:
         -o ./artifacts/windows
         -p:RuntimeIdentifierOverride=win10-x64
         -p:SelfContained=true
-        -p:PublishSingleFile=true
-        -p:IncludeAllContentForSelfExtract=true
-        -p:IncludeNativeLibrariesForSelfExtract=true
-        -p:EnableCompressionInSingleFile=true
         -p:WindowsAppSDKSelfContained=true
 
-    - name: Verify EXE artifact
+    - name: Verify published assets
       shell: pwsh
       run: |
         if (!(Test-Path "./artifacts/windows/Valour.exe")) {
           throw "Expected ./artifacts/windows/Valour.exe was not produced."
+        }
+        if (!(Test-Path "./artifacts/windows/wwwroot/_content/Valour.Client/css/bundled.min.css")) {
+          throw "Expected Blazor static assets were not found in publish output."
+        }
+
+    - name: Generate launcher icon
+      shell: pwsh
+      run: |
+        Add-Type -AssemblyName System.Drawing
+        $pngPath = Join-Path $PWD "Valour/Client.Maui/Resources/AppIcon/appicon.png"
+        $icoPath = Join-Path $PWD "Valour/BuildTools/WindowsLauncher/valour-launcher.ico"
+
+        $bitmap = [System.Drawing.Bitmap]::FromFile($pngPath)
+        $icon = [System.Drawing.Icon]::FromHandle($bitmap.GetHicon())
+        $stream = [System.IO.File]::Create($icoPath)
+        $icon.Save($stream)
+        $stream.Dispose()
+        $icon.Dispose()
+        $bitmap.Dispose()
+
+        if (!(Test-Path $icoPath)) {
+          throw "Launcher icon was not created."
+        }
+
+    - name: Create payload archive
+      shell: pwsh
+      run: Compress-Archive -Path ./artifacts/windows/* -DestinationPath ./artifacts/valour-payload.zip -Force
+
+    - name: Publish launcher
+      run: >
+        dotnet publish Valour/BuildTools/WindowsLauncher/Valour.WindowsLauncher.csproj
+        -c Release
+        -r win-x64
+        -o ./artifacts/launcher
+
+    - name: Build release executable
+      shell: pwsh
+      run: |
+        $launcherPath = Join-Path $PWD "artifacts/launcher/Valour.exe"
+        $payloadPath = Join-Path $PWD "artifacts/valour-payload.zip"
+        $outputPath = Join-Path $PWD "artifacts/Valour.exe"
+
+        Copy-Item $launcherPath $outputPath -Force
+
+        $payloadLength = (Get-Item $payloadPath).Length
+        $lengthBytes = [System.BitConverter]::GetBytes([Int64]$payloadLength)
+        $markerBytes = [System.Text.Encoding]::ASCII.GetBytes("VALOURP1")
+
+        $outStream = [System.IO.File]::Open($outputPath, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+        $payloadStream = [System.IO.File]::OpenRead($payloadPath)
+        $payloadStream.CopyTo($outStream)
+        $outStream.Write($lengthBytes, 0, $lengthBytes.Length)
+        $outStream.Write($markerBytes, 0, $markerBytes.Length)
+        $payloadStream.Dispose()
+        $outStream.Dispose()
+
+        if (!(Test-Path $outputPath)) {
+          throw "Final release executable was not created."
         }
 
     # TODO: Enable once SSL.com cert is validated and eSigner is enrolled
@@ -103,13 +157,13 @@ jobs:
     #     password: ${{ secrets.ES_PASSWORD }}
     #     credential_id: ${{ secrets.ES_CREDENTIAL_ID }}
     #     totp_secret: ${{ secrets.ES_TOTP_SECRET }}
-    #     file_path: ./artifacts/windows/Valour.exe
+    #     file_path: ./artifacts/Valour.exe
 
     - name: Create or update GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ needs.check-version.outputs.version }}
         name: Valour v${{ needs.check-version.outputs.version }}
-        files: ./artifacts/windows/Valour.exe
+        files: ./artifacts/Valour.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
