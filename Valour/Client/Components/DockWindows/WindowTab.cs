@@ -45,17 +45,21 @@ public abstract class WindowContent
     {
         if (PlanetId is not null)
         {
-            var planetService = Tab.Component.Dock.Client.PlanetService;
-            await planetService.TryClosePlanetConnection(PlanetId.Value, Id);
+            var planetService = Tab?.Component?.Dock?.Client?.PlanetService;
+            if (planetService is not null)
+                await planetService.TryClosePlanetConnection(PlanetId.Value, Id);
         }
     }
-    
+
     public async Task NotifyOpened()
     {
         if (PlanetId is not null)
         {
-            var planetService = Tab.Layout.DockComponent.Client.PlanetService;
-            await planetService.TryOpenPlanetConnection(PlanetId.Value, Id);
+            // Layout path works for docked tabs; Component path works for floating tabs
+            var planetService = Tab?.Layout?.DockComponent?.Client?.PlanetService
+                             ?? Tab?.Component?.Dock?.Client?.PlanetService;
+            if (planetService is not null)
+                await planetService.TryOpenPlanetConnection(PlanetId.Value, Id);
         }
     }
     

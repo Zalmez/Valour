@@ -9,6 +9,7 @@ public partial class App : MauiWinUIApplication
     private TaskbarIcon? _trayIcon;
     private Microsoft.UI.Xaml.Window? _mauiWindow;
     private Microsoft.UI.Windowing.AppWindow? _appWindow;
+    private bool _isExiting;
 
     public App()
     {
@@ -35,6 +36,7 @@ public partial class App : MauiWinUIApplication
         {
             _appWindow.Closing += (_, e) =>
             {
+                if (_isExiting) return; // Allow close when actually exiting
                 e.Cancel = true;
                 mauiWindow.DispatcherQueue.TryEnqueue(() =>
                 {
@@ -115,6 +117,8 @@ public partial class App : MauiWinUIApplication
 
     private void ExitApplication()
     {
+        _isExiting = true;
+
         _trayIcon?.Dispose();
         _trayIcon = null;
 

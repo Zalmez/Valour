@@ -64,6 +64,27 @@
         }
     }
 
+    /// <summary>
+    /// Starts JS-side drag mode. The element will be moved directly by JS
+    /// on mousemove without any .NET interop round-trips.
+    /// </summary>
+    public static async Task StartDrag(string elementId, IJSObjectReference scannerRef)
+    {
+        if (_jsService is not null)
+            await _jsService.InvokeVoidAsync("startDrag", elementId, scannerRef);
+    }
+
+    /// <summary>
+    /// Stops JS-side drag mode and returns the final [x, y] position,
+    /// or null if no drag was active.
+    /// </summary>
+    public static async Task<float[]> StopDrag()
+    {
+        if (_jsService is not null)
+            return await _jsService.InvokeAsync<float[]>("stopDrag");
+        return null;
+    }
+
     [JSInvokable("NotifyMouseMove")]
     public async Task NotifyMouseMove(
         float x, 
