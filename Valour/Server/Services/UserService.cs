@@ -273,18 +273,16 @@ public class UserService
             var host = ctx.Request.Host.ToUriComponent();
             string link = $"{ctx.Request.Scheme}://{host}/RecoverPassword/{recoveryCode}";
 
-            string emsg = $@"<body style='font-family: Ubuntu, Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4;'>
-            <div style='max-width: 600px; margin: 20px auto; background-color: #fff; padding: 20px; border-radius: 5px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);'>
-            <img src='https://valour.gg/media/logo/logo-64.png' alt='Valour Logo' style='max-width: 100%; height: auto; display: block; margin: 0 auto;'>
+            string bodyContent = $@"
             <h1 style='color: #333;'>Password Reset</h1>
             <p style='color: #666;'>Hello,</p>
             <p style='color: #666;'>You have requested a password reset for your account. To reset your password, please click the button below:</p>
             <a href='{link}' style='display: inline-block; padding: 10px 20px; background-color: #3498db; color: #fff; text-decoration: none; border-radius: 3px;'>Reset Password</a>
             <p style='color: #666;'>If you are unable to click the button, you can also copy and paste the following link into your browser:</p>
             <p style='color: #666;'><a href='{link}'>{link}</a></p>
-            <p style='color: #666;'>Thank you,<br>Valour Team</p>
-            </div>
-            </body>";
+            <p style='color: #666;'>Thank you,<br>Valour Team</p>";
+
+            string emsg = EmailTemplateHelper.WrapInTemplate(bodyContent);
 
             string rawmsg = $"To reset your password, please go to the following link:\n{link}";
 

@@ -157,7 +157,8 @@ public partial class Program
             new DynamicAPI<MessageApi>().RegisterRoutes(app),
             new DynamicAPI<UnreadApi>().RegisterRoutes(app),
             new DynamicAPI<TagApi>().RegisterRoutes(app),
-            new DynamicAPI<BotApi>().RegisterRoutes(app)
+            new DynamicAPI<BotApi>().RegisterRoutes(app),
+            new DynamicAPI<UnsubscribeApi>().RegisterRoutes(app)
         };
 
         NodeAPI = new NodeAPI();

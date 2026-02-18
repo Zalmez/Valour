@@ -132,6 +132,7 @@ public class StaffApi
     [StaffRequired]
     [ValourRoute(HttpVerbs.Post, "api/staff/email/send")]
     public static async Task<IResult> SendMassEmailAsync(
+        HttpContext ctx,
         UserService userService,
         StaffService staffService,
         [FromBody] SendMassEmailRequest request)
@@ -147,7 +148,9 @@ public class StaffApi
         if (string.IsNullOrWhiteSpace(request.HtmlBody))
             return ValourResult.BadRequest("Body is required.");
 
-        var result = await staffService.SendMassEmailAsync(request.Subject, request.HtmlBody);
+        var baseUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host.ToUriComponent()}";
+
+        var result = await staffService.SendMassEmailAsync(request.Subject, request.HtmlBody, baseUrl);
         if (!result.Success)
             return ValourResult.BadRequest(result.Message);
 

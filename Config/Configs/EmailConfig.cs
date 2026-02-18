@@ -19,6 +19,16 @@ public class EmailConfig
     public string ApiKey { get; set; }
 
     /// <summary>
+    /// HMAC-SHA256 secret for signing unsubscribe tokens
+    /// </summary>
+    public string UnsubscribeSecret { get; set; }
+
+    /// <summary>
+    /// CAN-SPAM physical mailing address
+    /// </summary>
+    public string PhysicalAddress { get; set; } = "99 Wall Street Suite 1299, New York, NY";
+
+    /// <summary>
     /// Set instance to newest config
     /// </summary>
     public EmailConfig()
