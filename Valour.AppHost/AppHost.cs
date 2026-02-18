@@ -9,7 +9,9 @@ var postgres = builder.AddPostgres("valourgres")
 
 var valourDb = postgres.AddDatabase("valourdb");
 
-var redis = builder.AddRedis("redis").WithDataVolume("redis-data");
+var redis = builder.AddRedis("redis")
+	.WithDataVolume("redis-data")
+	.WithRedisInsight();
 
 var valourServer = builder.AddProject<Valour_Server>("valour-server")
 	.WaitFor(valourDb)
