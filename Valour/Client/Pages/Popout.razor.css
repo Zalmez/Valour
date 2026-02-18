@@ -1,0 +1,17 @@
+.popout-shell {
+    height: 100vh;
+    width: 100vw;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background-color: var(--main-2);
+}
+
+.popout-error {
+    height: 100vh;
+    width: 100vw;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--font-color);
+}

@@ -14,11 +14,12 @@
                 _mainDisplay = new();
             }
 
-            @if (_planet?.Members is not null)
+            @if (_planet?.Members is not null && _displayedRoles is not null)
             {
                 foreach (var role in _displayedRoles)
                 {
-                    var members = _displayedRoleMembers[role.Id];
+                    if (!_displayedRoleMembers.TryGetValue(role.Id, out var members))
+                        continue;
 
                     if (members.Count > 0)
                     {
@@ -46,9 +47,9 @@
                     }
                 }
 
-                var online = _displayedRoleMembers[0];
+                _displayedRoleMembers.TryGetValue(0, out var online);
 
-                if (online.Count > 0)
+                if (online is not null && online.Count > 0)
                 {
                     _mainDisplay.Add(new()
                     {
@@ -72,9 +73,9 @@
                     }
                 }
 
-                var offline = _displayedRoleMembers[1];
+                _displayedRoleMembers.TryGetValue(1, out var offline);
 
-                if (offline.Count > 0)
+                if (offline is not null && offline.Count > 0)
                 {
 
                     _mainDisplay.Add(new()
@@ -196,62 +197,78 @@
 
     public void DetermineDisplayedRole(PlanetMember member)
     {
-        if (member is null)
-            return;
-
-        var lastRole = _lastMemberRoles[member.Id];
-        var newRole = DetermineDisplayRoleId(member);
-
-        if (lastRole != newRole)
+        InvokeAsync(() =>
         {
-            _displayedRoleMembers[lastRole].Remove(member);
+            if (member is null)
+                return;
 
-            var newRoleMembers = _displayedRoleMembers[newRole];
-            newRoleMembers.Add(member);
-            newRoleMembers.Sort(_comparer);
+            if (!_lastMemberRoles.TryGetValue(member.Id, out var lastRole))
+                return;
 
-            _lastMemberRoles[member.Id] = newRole;
+            var newRole = DetermineDisplayRoleId(member);
 
-            StateHasChanged();
-        }
+            if (lastRole != newRole)
+            {
+                if (_displayedRoleMembers.TryGetValue(lastRole, out var oldList))
+                    oldList.Remove(member);
+
+                if (_displayedRoleMembers.TryGetValue(newRole, out var newRoleMembers))
+                {
+                    newRoleMembers.Add(member);
+                    newRoleMembers.Sort(_comparer);
+                }
+
+                _lastMemberRoles[member.Id] = newRole;
+
+                StateHasChanged();
+            }
+        });
     }
 
     public void OnMemberListChange(IModelEvent<PlanetMember> eventData)
     {
-        switch (eventData)
+        InvokeAsync(() =>
         {
-            case ModelAddedEvent<PlanetMember> added:
+            switch (eventData)
             {
-                var member = added.Model;
-                
-                // Member is new - calculate their value and insert accordingly
-                var roleId = DetermineDisplayRoleId(member);
-                var roleList = _displayedRoleMembers[roleId];
+                case ModelAddedEvent<PlanetMember> added:
+                {
+                    var member = added.Model;
 
-                _lastMemberRoles[member.Id] = roleId;
+                    // Member is new - calculate their value and insert accordingly
+                    var roleId = DetermineDisplayRoleId(member);
+                    if (_displayedRoleMembers.TryGetValue(roleId, out var roleList))
+                    {
+                        _lastMemberRoles[member.Id] = roleId;
+                        roleList.Add(member);
+                        roleList.Sort(_comparer);
+                    }
 
-                roleList.Add(member);
-                roleList.Sort(_comparer);
-                
-                return;
+                    break;
+                }
+                case ModelUpdatedEvent<PlanetMember> updated:
+                {
+                    // TODO: handle name / whatever changes
+                    break;
+                }
+                case ModelRemovedEvent<PlanetMember> deleted:
+                {
+                    var member = deleted.Model;
+
+                    // Member is removed (left planet), remove from display
+                    var roleId = DetermineDisplayRoleId(member);
+                    if (_displayedRoleMembers.TryGetValue(roleId, out var roleList))
+                    {
+                        roleList.Remove(member);
+                    }
+
+                    _lastMemberRoles.Remove(member.Id);
+                    break;
+                }
             }
-            case ModelUpdatedEvent<PlanetMember> updated:
-            {
-                // TODO: handle name / whatever changes
-                return;
-            }
-            case ModelRemovedEvent<PlanetMember> deleted:
-            {
-                var member = deleted.Model;
-                
-                // Member is removed (left planet), remove from display
-                var roleId = DetermineDisplayRoleId(member);
-                var roleList = _displayedRoleMembers[roleId];
-                
-                roleList.Remove(member);
-                return;
-            }
-        }
+
+            StateHasChanged();
+        });
     }
     
     private void OnPlanetRolesChange(IModelEvent<PlanetRole> eventData)

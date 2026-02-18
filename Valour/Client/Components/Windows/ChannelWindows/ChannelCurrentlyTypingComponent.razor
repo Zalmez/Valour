@@ -81,35 +81,42 @@
     {
         _ = InvokeAsync(async () =>
         {
-            if (_typingUpdates.Any())
+            try
             {
-                _remove.Clear();
-                foreach (var pair in _typingUpdates)
+                if (_typingUpdates.Any())
                 {
-                    if (pair.Value.AddSeconds(3) < DateTime.UtcNow)
+                    _remove.Clear();
+                    foreach (var pair in _typingUpdates)
                     {
-                        _remove.Add(pair.Key);
+                        if (pair.Value.AddSeconds(3) < DateTime.UtcNow)
+                        {
+                            _remove.Add(pair.Key);
+                        }
+                    }
+
+                    if (_remove.Any())
+                    {
+                        foreach (var id in _remove)
+                        {
+                            _typingUpdates.Remove(id, out _);
+                        }
+
+                        await RefreshDisplay();
                     }
                 }
-
-                if (_remove.Any())
+                else
                 {
-                    foreach (var id in _remove)
+                    if (DisplayData.Any())
                     {
-                        _typingUpdates.Remove(id, out _);
+                        TotalCount = 0;
+                        DisplayData.Clear();
+                        StateHasChanged();
                     }
-
-                    await RefreshDisplay();
                 }
             }
-            else
+            catch (Exception ex)
             {
-                if (DisplayData.Any())
-                {
-                    TotalCount = 0;
-                    DisplayData.Clear();
-                    StateHasChanged();
-                }
+                System.Diagnostics.Debug.WriteLine($"Error in typing timer: {ex.Message}");
             }
         });
     }
@@ -140,12 +147,21 @@
         {
             if (Channel.PlanetId is not null)
             {
+                if (Channel.Planet is null)
+                    continue;
+
                 var member = await Channel.Planet.FetchMemberByUserAsync(userId);
+                if (member is null)
+                    continue;
+
                 DisplayData.Add((member.GetRoleColor(), member.Name));
             }
             else
             {
                 var user = await UserService.FetchUserAsync(userId);
+                if (user is null)
+                    continue;
+
                 DisplayData.Add(("#ffffff", user.Name));
             }
         }
@@ -166,6 +182,16 @@
 
         _typingUpdates[update.UserId] = DateTime.UtcNow;
 
-        return InvokeAsync(async () => await RefreshDisplay());
+        return InvokeAsync(async () =>
+        {
+            try
+            {
+                await RefreshDisplay();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in typing update: {ex.Message}");
+            }
+        });
     }
 }

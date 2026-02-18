@@ -6,16 +6,34 @@
 {
     // Only allow adding channels to categories
     if (Data.Channel.ChannelType == ChannelTypeEnum.PlanetCategory){
-        <ContextMenuItem OnClick="@OpenCreateChannel">Add Channel</ContextMenuItem>
-        <ContextMenuItem OnClick="@OpenCreateVoiceChannel">Add Voice Channel</ContextMenuItem>
-        <ContextMenuItem OnClick="@OpenCreateCategory">Add Category</ContextMenuItem>
+        <ContextMenuItem OnClick="@OpenCreateChannel">
+            <Label>Add Channel</Label>
+            <Icon><i class="bi bi-chat-left"></i></Icon>
+        </ContextMenuItem>
+        <ContextMenuItem OnClick="@OpenCreateVoiceChannel">
+            <Label>Add Voice Channel</Label>
+            <Icon><i class="bi bi-music-note-beamed"></i></Icon>
+        </ContextMenuItem>
+        <ContextMenuItem OnClick="@OpenCreateCategory">
+            <Label>Add Category</Label>
+            <Icon><i class="bi bi-folder"></i></Icon>
+        </ContextMenuItem>
     }
-    
+
     // All channels have these options
-    <ContextMenuItem OnClickAsync="@EditChannelListItem">Edit</ContextMenuItem>
-    <ContextMenuItem OnClickAsync="@DeleteChannelListItem">Delete</ContextMenuItem>
+    <ContextMenuItem OnClickAsync="@EditChannelListItem">
+        <Label>Edit</Label>
+        <Icon><i class="bi bi-pen-fill"></i></Icon>
+    </ContextMenuItem>
+    <ContextMenuItem OnClickAsync="@DeleteChannelListItem" Color="red">
+        <Label>Delete</Label>
+        <Icon><i class="bi bi-trash-fill"></i></Icon>
+    </ContextMenuItem>
 }
-<ContextMenuItem OnClickAsync="@OnClickCopyId">Copy Id</ContextMenuItem>
+<ContextMenuItem OnClickAsync="@OnClickCopyId">
+    <Label>Copy ID</Label>
+    <Icon><i class="bi bi-database-fill"></i></Icon>
+</ContextMenuItem>
 
 @code {
 
@@ -126,7 +144,7 @@
         
         var data = new EditChannelListItemComponent.ModalParams()
         {   
-            ChannelListItem = Data.Channel
+            Channel = Data.Channel
         };
         
         ModalRoot.OpenModal<EditChannelListItemComponent>(data);

@@ -7,7 +7,8 @@ public enum AutomodActionType
     AddRole,
     RemoveRole,
     DeleteMessage,
-    Respond
+    Respond,
+    BlockMessage
 }
 
 public interface ISharedAutomodAction

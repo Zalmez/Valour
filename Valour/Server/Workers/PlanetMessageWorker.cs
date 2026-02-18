@@ -16,6 +16,9 @@ namespace Valour.Server.Workers
         // A map from message id to the message queued
         private static readonly ConcurrentDictionary<long, Message> StagedMessages = new();
 
+        // Messages that have been accepted for queueing but not yet consumed
+        private static readonly ConcurrentDictionary<long, Message> QueuedMessages = new();
+
         // Prevents deleted messages from being staged
         private static readonly ConcurrentDictionary<long, byte> BlockSet = new();
 
@@ -43,21 +46,43 @@ namespace Valour.Server.Workers
                 return;
             }
 
-            // Generate Id for message
+            QueuedMessages[message.Id] = message;
             MessageQueue.Add(message);
         }
 
         public static void RemoveFromQueue(Message message)
         {
-            StagedMessages.TryRemove(message.Id, out _);
-            RemoveStagedMessageFromChannel(message);
-            BlockSet[message.Id] = 0;
+            var wasStaged = StagedMessages.TryRemove(message.Id, out _);
+            if (wasStaged)
+            {
+                RemoveStagedMessageFromChannel(message);
+            }
+
+            var wasQueued = QueuedMessages.TryRemove(message.Id, out _);
+
+            // If a message was already staged, there is nothing left to block.
+            // Otherwise we mark it blocked so the consumer skips it if it is still queued
+            // or in-flight between dequeue and staging.
+            if (wasQueued || !wasStaged)
+            {
+                BlockSet[message.Id] = 0;
+            }
+            else
+            {
+                BlockSet.TryRemove(message.Id, out _);
+            }
         }
 
         public static Message GetStagedMessage(long messageId)
         {
             StagedMessages.TryGetValue(messageId, out var staged);
             return staged;
+        }
+
+        public static Message GetQueuedMessage(long messageId)
+        {
+            QueuedMessages.TryGetValue(messageId, out var queued);
+            return queued;
         }
         
         public static List<Message> GetStagedMessages(long channelId)
@@ -137,7 +162,6 @@ namespace Valour.Server.Workers
                     {
                         await db.Messages.AddAsync(message);
                         await db.SaveChangesAsync();
-                        BlockSet[message.Id] = 0;
                         StagedMessages.TryRemove(message.Id, out _);
                         RemoveStagedMessageFromChannel(message.ChannelId, message.Id);
                     }
@@ -147,10 +171,11 @@ namespace Valour.Server.Workers
                     }
                 }
             }
-            
-            BlockSet.Clear();
-            StagedMessages.Clear();
-            StagedChannelMessages.Clear();
+            foreach (var staged in stagedSnapshot)
+            {
+                StagedMessages.TryRemove(staged.Id, out _);
+                RemoveStagedMessageFromChannel(staged);
+            }
             _logger.LogInformation($"Saved successfully.");
             }
             finally
@@ -176,8 +201,13 @@ namespace Valour.Server.Workers
             // This is a stream and will run forever
             foreach (var message in MessageQueue.GetConsumingEnumerable())
             {
+                QueuedMessages.TryRemove(message.Id, out _);
+
                 if (BlockSet.ContainsKey(message.Id))
-                    continue; // It's going to get cleared anyways
+                {
+                    BlockSet.TryRemove(message.Id, out _);
+                    continue;
+                }
 
                 message.TimeSent = DateTime.UtcNow;
                 

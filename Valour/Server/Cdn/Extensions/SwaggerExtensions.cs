@@ -27,22 +27,25 @@ namespace Valour.Server.Cdn.Extensions
                 Schema = new OpenApiSchema()
                 {
                     Type = JsonSchemaType.Object,
-                    Properties =
-                {
-                    ["uploadedFile"] = new OpenApiSchema()
+                    Properties = new Dictionary<string, IOpenApiSchema>
                     {
-                        Description = "Upload File",
-                        Type = JsonSchemaType.Object,
-                        Format = "formData"
-                    }
-                },
+                        ["uploadedFile"] = new OpenApiSchema()
+                        {
+                            Description = "Upload File",
+                            Type = JsonSchemaType.Object,
+                            Format = "formData"
+                        }
+                    },
                     Required = new HashSet<string>() { "uploadedFile" }
                 }
             };
 
             operation.RequestBody = new OpenApiRequestBody
             {
-                Content = { ["multipart/form-data"] = uploadFileMediaType }
+                Content = new Dictionary<string, OpenApiMediaType>
+                {
+                    ["multipart/form-data"] = uploadFileMediaType
+                }
             };
         }
 

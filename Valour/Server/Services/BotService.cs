@@ -99,6 +99,19 @@ public class BotService
             _db.Users.Add(bot);
             await _db.SaveChangesAsync();
 
+            // Create a profile for the bot
+            var profile = new Valour.Database.UserProfile
+            {
+                Id = bot.Id,
+                Headline = "Bot Account",
+                Bio = $"I'm {name}, a bot on Valour!",
+                BorderColor = "#fff",
+                AnimatedBorder = false,
+            };
+
+            _db.UserProfiles.Add(profile);
+            await _db.SaveChangesAsync();
+
             // Create a bot token (long-lived, 100 years)
             var token = new Valour.Database.AuthToken
             {
@@ -152,6 +165,11 @@ public class BotService
                 _tokenService.RemoveFromQuickCache(token.Id);
             }
             _db.AuthTokens.RemoveRange(tokens);
+
+            // Remove the bot's profile
+            var profile = await _db.UserProfiles.FindAsync(botId);
+            if (profile is not null)
+                _db.UserProfiles.Remove(profile);
 
             // Remove the bot user
             _db.Users.Remove(bot);

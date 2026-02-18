@@ -174,21 +174,22 @@ public class EmbedAPI : BaseAPI
         return Results.Ok("Sent Personal Embed Update");
     }
 
-    private static async Task Interaction(HttpContext ctx, ValourDb db, UserService userService, CoreHubService hubService, PlanetMemberService memberService, [FromHeader] string authorization)
+    private static async Task<IResult> Interaction(HttpContext ctx, ValourDb db, UserService userService, CoreHubService hubService, PlanetMemberService memberService, [FromHeader] string authorization)
     {
         EmbedInteractionEvent e = await JsonSerializer.DeserializeAsync<EmbedInteractionEvent>(ctx.Request.Body);
 
         var botUser = await userService.GetCurrentUserAsync();
-        if (botUser is null) { await TokenInvalid(ctx); return; }
+        if (botUser is null) return Results.Unauthorized();
 
         var member = await db.PlanetMembers.Include(x => x.Planet).FirstOrDefaultAsync(x => x.Id == e.MemberId);
-        if (member == null) { await NotFound("Member not found", ctx); return; }
-        if (botUser.Id != member.UserId) { await BadRequest("Member id mismatch", ctx); return; }
+        if (member == null) return Results.NotFound("Member not found");
+        if (botUser.Id != member.UserId) return Results.BadRequest("Member id mismatch");
 
         var channel = await db.Channels.FindAsync(e.ChannelId);
 
-        if (!await memberService.HasPermissionAsync(member.ToModel(), channel.ToModel(), ChatChannelPermissions.View)) { await Unauthorized("Member lacks ChatChannelPermissions.View", ctx); return; }
+        if (!await memberService.HasPermissionAsync(member.ToModel(), channel.ToModel(), ChatChannelPermissions.View)) return Results.Forbid();
 
         hubService.NotifyInteractionEvent(e);
+        return Results.Ok();
     }
 }

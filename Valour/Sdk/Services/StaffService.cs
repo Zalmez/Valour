@@ -55,6 +55,17 @@ public class StaffService : ServiceBase
         return await _client.PrimaryNode.PostAsync("api/staff/users/verify", request);
     }
 
+    public async Task<TaskResult> SendMassEmailAsync(string subject, string htmlBody)
+    {
+        var request = new SendMassEmailRequest()
+        {
+            Subject = subject,
+            HtmlBody = htmlBody
+        };
+
+        return await _client.PrimaryNode.PostAsync("api/staff/email/send", request);
+    }
+
     public async Task<Message> GetMessageAsync(long messageId)
     {
         var result = await _client.PrimaryNode.GetJsonAsync<Message>($"api/staff/messages/{messageId}");

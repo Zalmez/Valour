@@ -1,4 +1,5 @@
-﻿@implements IAsyncDisposable
+@implements IAsyncDisposable
+@inject INativeWindowService NativeWindowService
 
 <div id="tab-@WindowTab.Id"
      class="window-wrapper @WindowWrapperClasses"
@@ -27,6 +28,12 @@
                 <div class="tab-buttons"
                      @onclick:stopPropagation="true"
                      @onmousedown:stopPropagation="true">
+                    @if (CanPopOutToNativeWindow)
+                    {
+                        <span class="popout" title="Pop out into a new window" @onclick="@OnClickPopout">
+                            <i class="bi bi-box-arrow-up-right"></i>
+                        </span>
+                    }
                     <span class="minus" @onclick="@OnClickMinus">
                         <i class="bi bi-dash-circle-fill"></i>
                     </span>
@@ -103,6 +110,7 @@
     public bool IsActive => Layout?.FocusedTab == WindowTab;
     public bool IsFloating => WindowTab.IsFloating;
     private bool IsLastTab => Layout is not null && (Layout.Tabs.Last().Id == WindowTab.Id);
+    private bool CanPopOutToNativeWindow => NativeWindowService.SupportsTabPopout && !DeviceInfo.IsMobile;
 
     ///////////////////////
     // Private properties //
@@ -213,6 +221,16 @@
             _armFloatEvent = false;
             await WindowTab.NotifyFloating(); // Fire off event
         }
+
+        if (_armJsDrag)
+        {
+            _armJsDrag = false;
+            // Element is now in the DOM after render — start JS-side drag
+            await MouseListener.StartDrag(
+                $"tab-{WindowTab.Id}",
+                WindowTargetScanner.JsService
+            );
+        }
     }
     
     public void ReRender()
@@ -293,6 +311,27 @@
         await CloseAsync();
     }
 
+    private async Task OnClickPopout()
+    {
+        if (!CanPopOutToNativeWindow || WindowTab?.Content is null)
+            return;
+
+        var adapter = new WindowSaveLoadAdapter(Dock.Client);
+        var exported = adapter.Export(new List<WindowTab> { WindowTab }).FirstOrDefault();
+        if (exported is null)
+            return;
+
+        var popoutKey = NativeTabPopoutStore.Add(exported);
+        var opened = await NativeWindowService.TryOpenTabPopoutWindow(popoutKey, Title);
+        if (!opened)
+        {
+            NativeTabPopoutStore.TryTake(popoutKey, out _);
+            return;
+        }
+
+        await CloseAsync();
+    }
+
     private Task OnClickTab(MouseEventArgs e)
     {
         return SetFocused();
@@ -324,44 +363,72 @@
 
     private bool _dragging = false;
     private bool _armFloatEvent = false; // Used to trigger event when the window starts floating. See OnAfterRenderAsync.
-    
+    private bool _armJsDrag = false; // Used to start JS drag after render (for dock->float transition). See OnAfterRenderAsync.
+    private bool _subscribedToMove = false; // Tracks whether we're subscribed to mousemove
+
     /// <summary>
     /// Runs when the mouse goes down on the tab - prepares for dragging.
     /// </summary>
-    private Task OnTabDown(MouseEventArgs e)
+    private async Task OnTabDown(MouseEventArgs e)
     {
         // Store the start position
         _dragStartX = (float)e.ClientX;
         _dragStartY = (float)e.ClientY;
-        
-        // Enable mouse move listener
-        MouseListener.SubscribeMouseMove(OnDragTab);
-        
-        // Enable mouse up listener
-        
+
+        // Enable mouse up listener globally (always needed for both paths)
         // Why not just use the up event on the tab? Because the mouse can move off the tab,
         // and we still want to be able to drag the tab. So we need to listen for the up event
         // globally.
         MouseListener.SubscribeMouseUp(OnTabUp);
-        
-        return Task.CompletedTask;
+
+        if (IsFloating)
+        {
+            // Already floating: start JS-side drag immediately (element exists in DOM)
+            _dragging = true;
+            WindowService.NotifyTabDragging(this.WindowTab);
+
+            await MouseListener.StartDrag(
+                $"tab-{WindowTab.Id}",
+                WindowTargetScanner.JsService
+            );
+
+            ReRender();
+        }
+        else
+        {
+            // Docked: need mousemove to detect the 10px threshold before floating
+            MouseListener.SubscribeMouseMove(OnDragTab);
+            _subscribedToMove = true;
+        }
     }
-    
+
     private async Task OnTabUp(MouseUpEvent e)
     {
+        // Stop JS drag if active, get final position
+        var finalPos = await MouseListener.StopDrag();
+        if (finalPos is not null && WindowTab.FloatingProps is not null)
+        {
+            WindowTab.FloatingProps.X = finalPos[0];
+            WindowTab.FloatingProps.Y = finalPos[1];
+        }
+
         _dragging = false;
-        
+
         // End window target scanner
         await WindowTargetScanner.FinalizeAsync(e.X, e.Y);
-        
-        // Disable mouse move listener
-        MouseListener.UnsubscribeMouseMove(OnDragTab);
-        
+
+        // Disable mouse move listener (only if we subscribed)
+        if (_subscribedToMove)
+        {
+            MouseListener.UnsubscribeMouseMove(OnDragTab);
+            _subscribedToMove = false;
+        }
+
         // Disable mouse up listener
         MouseListener.UnsubscribeMouseUp(OnTabUp);
-        
+
         WindowService.NotifyTabDragging(null);
-        
+
         ReRender();
     }
 
@@ -373,14 +440,23 @@
             {
                 return; // Waiting for render to float
             }
-            
+
             // If not floating, we start floating if the mouse moves a certain distance
             if (Math.Abs(e.ClientX - _dragStartX) > 10 || Math.Abs(e.ClientY - _dragStartY) > 10)
             {
                 Console.WriteLine("Started floating");
-                
+
                 _armFloatEvent = true;
-                
+                _armJsDrag = true;
+                _dragging = true;
+
+                // Unsubscribe from mousemove — JS will handle position updates
+                MouseListener.UnsubscribeMouseMove(OnDragTab);
+                _subscribedToMove = false;
+
+                // Notify global windows of dragging (once)
+                WindowService.NotifyTabDragging(this.WindowTab);
+
                 await Layout.DockComponent.AddFloatingTab(WindowTab, new FloatingWindowProps()
                 {
                     X = Math.Max(0, e.ClientX - 150),
@@ -392,25 +468,22 @@
         }
         else
         {
-            // Console.WriteLine("Dragging " + WindowTab.Id);
-            
-            // Just move the floating window
+            // Fallback: if somehow we're still subscribed to mousemove while floating,
+            // handle it the old way (should not normally be reached)
             WindowTab.FloatingProps.X += e.DeltaX;
             WindowTab.FloatingProps.Y += e.DeltaY;
-            
-            // Console.WriteLine("Pos: " + JsonSerializer.Serialize(WindowTab.FloatingProps));
 
             EnsureOnScreen();
-            
+
             _dragging = true;
-            
+
             // Notify global windows of dragging
             WindowService.NotifyTabDragging(this.WindowTab);
-            
+
             // Run window target scanner
             await WindowTargetScanner.ScanAsync(e.ClientX, e.ClientY);
         }
-        
+
         ReRender();
     }
     

@@ -42,6 +42,20 @@
                 }
             </div>
         }
+        @if (TabFour is not null)
+        {
+            <div class="v-tab @GetPositionClass(3) @GetActive(3)" @onclick="() => OnClick(3)">
+                @if (!string.IsNullOrEmpty(IconFour))
+                {
+                    <i class="bi bi-@IconFour v-tab-icon"></i>
+                }
+                <span>@_titleFour</span>
+                @if (BadgeFour.HasValue && BadgeFour.Value > 0)
+                {
+                    <span class="v-tab-badge">@BadgeFour</span>
+                }
+            </div>
+        }
     </div>
     <div class="v-tab-content" style="max-height: @MaxHeight; @ContentStyle">
         @switch (_active)
@@ -54,6 +68,9 @@
                 break;
             case 2:
                 @TabThree
+                break;
+            case 3:
+                @TabFour
                 break;
         }
     </div>
@@ -94,6 +111,9 @@
     public string IconThree { get; set; }
 
     [Parameter]
+    public string IconFour { get; set; }
+
+    [Parameter]
     public int? BadgeOne { get; set; }
 
     [Parameter]
@@ -102,39 +122,36 @@
     [Parameter]
     public int? BadgeThree { get; set; }
 
+    [Parameter]
+    public int? BadgeFour { get; set; }
+
     private string GetPositionClass(int index)
     {
-        switch (_tabCount)
-        {
-            case 1:
-                return "first last";
-            case 2:
-                return index == 0 ? "first" : "last";
-            case 3:
-                if (index == 0) return "first";
-                if (index == 2) return "last";
-                return "";
-            default:
-                return "";
-        }
+        if (index == 0) return "first";
+        if (index == _tabCount - 1) return "last";
+        return "";
     }
 
     // Cached so we don't have to keep recalculating
     private string _titleOne = "Tab One";
     private string _titleTwo = "Tab Two";
     private string _titleThree = "Tab Three";
+    private string _titleFour = "Tab Four";
 
     private string _classOne;
     private string _classTwo;
     private string _classThree;
-    
-    
+    private string _classFour;
+
+
     [Parameter]
     public RenderFragment TabOne { get; set; }
     [Parameter]
     public RenderFragment TabTwo { get; set; }
     [Parameter]
     public RenderFragment TabThree { get; set; }
+    [Parameter]
+    public RenderFragment TabFour { get; set; }
 
     private int _tabCount;
     private int _active;
@@ -147,6 +164,8 @@
             _tabCount++;
         if (TabThree is not null)
             _tabCount++;
+        if (TabFour is not null)
+            _tabCount++;
 
         if (Titles is not null)
         {
@@ -156,6 +175,8 @@
                 _titleTwo = Titles[1];
             if (Titles.Length > 2)
                 _titleThree = Titles[2];
+            if (Titles.Length > 3)
+                _titleFour = Titles[3];
         }
 
         switch (_tabCount)
@@ -171,6 +192,12 @@
                 _classOne = "tab left";
                 _classTwo = "tab";
                 _classThree = "tab right";
+                break;
+            case 4:
+                _classOne = "tab left";
+                _classTwo = "tab";
+                _classThree = "tab";
+                _classFour = "tab right";
                 break;
         }
     }

@@ -30,14 +30,25 @@ public class ResizeObserver : IAsyncDisposable
     
     public async ValueTask DisposeAsync()
     {
-        await _service.InvokeVoidAsync("dispose");
-        _dotnetRef.Dispose();
-        await _service.DisposeAsync();
-        await _jsModule.DisposeAsync();
-        
+        try
+        {
+            if (_service is not null)
+            {
+                await _service.InvokeVoidAsync("dispose");
+                await _service.DisposeAsync();
+            }
+
+            if (_jsModule is not null)
+                await _jsModule.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { }
+        catch (JSException) { }
+
+        _dotnetRef?.Dispose();
+
         if (ResizeEvent is not null)
             ResizeEvent.Dispose();
-        
+
         GC.SuppressFinalize(this);
     }
     

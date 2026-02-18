@@ -47,7 +47,7 @@
                         @foreach (var act in _newActions)
                         {
                             <tr>
-                                <td>@act.ActionType</td>
+                                <td>@GetActionTypeLabel(act.ActionType)</td>
                                 <td>@act.Message</td>
                                 <td>@act.Strikes</td>
                                 <td>@act.UseGlobalStrikes</td>
@@ -85,7 +85,7 @@
                 <select class="form-control" @bind="_action.ActionType">
                     @foreach (AutomodActionType t in Enum.GetValues<AutomodActionType>())
                     {
-                        <option value="@t">@t</option>
+                        <option value="@t">@GetActionTypeLabel(t)</option>
                     }
                 </select>
             </div>
@@ -159,6 +159,15 @@
     private bool ShowExpires => _action.ActionType == AutomodActionType.Ban;
     private bool ShowRole => _action.ActionType == AutomodActionType.AddRole || _action.ActionType == AutomodActionType.RemoveRole;
     private bool ShowMessage => _action.ActionType == AutomodActionType.Respond || _action.ActionType == AutomodActionType.Kick || _action.ActionType == AutomodActionType.Ban;
+
+    private static string GetActionTypeLabel(AutomodActionType actionType) => actionType switch
+    {
+        AutomodActionType.AddRole => "Add Role",
+        AutomodActionType.RemoveRole => "Remove Role",
+        AutomodActionType.DeleteMessage => "Delete Message",
+        AutomodActionType.BlockMessage => "Block Message",
+        _ => actionType.ToString()
+    };
     
     private bool RoleSearchFunc(PlanetRole role, string search)
     {
@@ -277,7 +286,7 @@
             new()
             {
                 Name = "Type",
-                RenderFragment = row => @<span>@row.Row.ActionType</span>,
+                RenderFragment = row => @<span>@GetActionTypeLabel(row.Row.ActionType)</span>,
                 Width = "200px"
             },
             new()

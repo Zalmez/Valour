@@ -153,6 +153,13 @@
     private bool _isFriend;
     private bool _isFriendRequested;
 
+    protected override void OnParametersSet()
+    {
+        // Set avatar URL immediately when parameters change so the first render
+        // has the correct src, preventing an onerror race condition
+        _pfpUrl = Member?.GetAvatar() ?? User?.GetAvatar() ?? ISharedUser.DefaultAvatar;
+    }
+
     public Task LoadDetailsAsync()
     {
         _isFriendRequested = FriendService.OutgoingRequests.Any(x => x.Id == User.Id);

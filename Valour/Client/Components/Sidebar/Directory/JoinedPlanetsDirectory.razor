@@ -19,6 +19,10 @@
             <i class="bi bi-compass"></i>
             <span>Discover Planets</span>
         </button>
+        <button class="action-btn" @onclick="@OnClickCreatePlanet">
+            <i class="bi bi-plus-circle"></i>
+            <span>Create a Planet</span>
+        </button>
     </div>
 </div>
 
@@ -82,6 +86,15 @@
     {
         var windowContent = new DiscoveryPageWindowContent();
         await WindowService.OpenWindowAtFocused(windowContent);
+    }
+
+    private void OnClickCreatePlanet()
+    {
+        var data = new CreatePlanetComponent.ModalParams()
+        {
+        };
+
+        ModalRoot.Instance.OpenModal<CreatePlanetComponent>(data);
     }
 
     private void CalculatePlanets()

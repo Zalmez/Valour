@@ -1,4 +1,6 @@
+#if ANDROID
 using Plugin.Firebase.CloudMessaging;
+#endif
 using Valour.Client.Components.Notifications;
 using Valour.Client.Notifications;
 using Valour.Sdk.Client;
@@ -7,8 +9,10 @@ using Valour.Shared.Models;
 
 namespace Valour.Client.Maui.Notifications;
 
+#if ANDROID
 public class MauiPushNotificationService : IPushNotificationService
 {
+    private const string PushSubscribedPreferenceKey = "push_subscribed";
     private readonly ValourClient _client;
 
     public MauiPushNotificationService(ValourClient client)
@@ -78,7 +82,7 @@ public class MauiPushNotificationService : IPushNotificationService
                 };
             }
 
-            Preferences.Set("push_subscribed", true);
+            Preferences.Default.Set(PushSubscribedPreferenceKey, true);
 
             return new PushSubscriptionResult
             {
@@ -121,11 +125,14 @@ public class MauiPushNotificationService : IPushNotificationService
                 await _client.PrimaryNode.PostAsync("api/notifications/unsubscribe", pushNotificationSubscription);
             }
 
-            Preferences.Set("push_subscribed", false);
         }
         catch (Exception)
         {
             // Best-effort unsubscribe
+        }
+        finally
+        {
+            Preferences.Default.Set(PushSubscribedPreferenceKey, false);
         }
     }
 
@@ -165,9 +172,49 @@ public class MauiPushNotificationService : IPushNotificationService
         }
     }
 
-    public Task<bool> IsNotificationsEnabledAsync()
+    public async Task<bool> IsNotificationsEnabledAsync()
     {
-        return Task.FromResult(Preferences.Get("push_subscribed", false));
+        var locallySubscribed = Preferences.Default.Get(PushSubscribedPreferenceKey, false);
+
+        if (!_client.IsLoggedIn || _client.PrimaryNode is null)
+            return locallySubscribed;
+
+        try
+        {
+            var permissionState = await GetPermissionStateAsync();
+            if (permissionState == "denied")
+            {
+                Preferences.Default.Set(PushSubscribedPreferenceKey, false);
+                return false;
+            }
+
+            var token = await CrossFirebaseCloudMessaging.Current.GetTokenAsync();
+            if (string.IsNullOrWhiteSpace(token))
+                return locallySubscribed;
+
+            var pushNotificationSubscription = new PushNotificationSubscription
+            {
+                UserId = _client.Me.Id,
+                Endpoint = token,
+                Key = "",
+                Auth = "",
+                DeviceType = NotificationDeviceType.AndroidFcm,
+            };
+
+            var result = await _client.PrimaryNode.PostAsyncWithResponse<bool>(
+                "api/notifications/subscribed",
+                pushNotificationSubscription);
+
+            if (!result.Success)
+                return locallySubscribed;
+
+            Preferences.Default.Set(PushSubscribedPreferenceKey, result.Data);
+            return result.Data;
+        }
+        catch (Exception)
+        {
+            return locallySubscribed;
+        }
     }
 
     public async Task<string> GetPermissionStateAsync()
@@ -213,3 +260,91 @@ public class MauiPushNotificationService : IPushNotificationService
         return Task.CompletedTask;
     }
 }
+#elif WINDOWS
+public class MauiPushNotificationService : IPushNotificationService
+{
+    private readonly WindowsToastService _toastService;
+
+    public MauiPushNotificationService(WindowsToastService toastService)
+    {
+        _toastService = toastService;
+    }
+
+    public Task<PushSubscriptionResult> RequestSubscriptionAsync()
+    {
+        _toastService.Enable();
+        Preferences.Set("push_subscribed", true);
+
+        return Task.FromResult(new PushSubscriptionResult
+        {
+            Success = true,
+            Subscription = new PushSubscriptionDetails
+            {
+                Endpoint = "windows-local",
+                Key = "",
+                Auth = "",
+            }
+        });
+    }
+
+    public Task UnsubscribeAsync()
+    {
+        _toastService.Disable();
+        Preferences.Set("push_subscribed", false);
+        return Task.CompletedTask;
+    }
+
+    public Task<PushSubscriptionResult> GetSubscriptionAsync()
+    {
+        if (Preferences.Get("push_subscribed", false))
+        {
+            return Task.FromResult(new PushSubscriptionResult
+            {
+                Success = true,
+                Subscription = new PushSubscriptionDetails
+                {
+                    Endpoint = "windows-local",
+                    Key = "",
+                    Auth = "",
+                }
+            });
+        }
+
+        return Task.FromResult(new PushSubscriptionResult
+        {
+            Success = false,
+            Error = "Notifications not enabled"
+        });
+    }
+
+    public Task<bool> IsNotificationsEnabledAsync()
+    {
+        return Task.FromResult(Preferences.Get("push_subscribed", false));
+    }
+
+    public Task<string> GetPermissionStateAsync() => Task.FromResult("granted");
+
+    public Task AskForPermissionAsync() => Task.CompletedTask;
+
+    public Task OpenNotificationSettingsAsync() => Task.CompletedTask;
+}
+#else
+public class MauiPushNotificationService : IPushNotificationService
+{
+    public Task<PushSubscriptionResult> RequestSubscriptionAsync() =>
+        Task.FromResult(new PushSubscriptionResult { Success = false, Error = "Push notifications are not supported on this platform." });
+
+    public Task UnsubscribeAsync() => Task.CompletedTask;
+
+    public Task<PushSubscriptionResult> GetSubscriptionAsync() =>
+        Task.FromResult(new PushSubscriptionResult { Success = false, Error = "Push notifications are not supported on this platform." });
+
+    public Task<bool> IsNotificationsEnabledAsync() => Task.FromResult(false);
+
+    public Task<string> GetPermissionStateAsync() => Task.FromResult("denied");
+
+    public Task AskForPermissionAsync() => Task.CompletedTask;
+
+    public Task OpenNotificationSettingsAsync() => Task.CompletedTask;
+}
+#endif

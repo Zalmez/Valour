@@ -1068,6 +1068,44 @@ namespace Valour.Database.Migrations
                     b.ToTable("planet_bans");
                 });
 
+            modelBuilder.Entity("Valour.Database.PlanetEmoji", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<long>("CreatorUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("creator_user_id");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("name");
+
+                    b.Property<long>("PlanetId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("planet_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatorUserId");
+
+                    b.HasIndex("PlanetId");
+
+                    b.HasIndex("PlanetId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("planet_emojis", (string)null);
+                });
+
             modelBuilder.Entity("Valour.Database.PlanetInvite", b =>
                 {
                     b.Property<string>("Id")
@@ -1872,9 +1910,21 @@ namespace Valour.Database.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<long>("EnabledNotificationSources")
+                        .HasColumnType("bigint")
+                        .HasColumnName("enabled_notification_sources");
+
                     b.Property<int>("ErrorReportingState")
                         .HasColumnType("integer")
                         .HasColumnName("error_reporting_state");
+
+                    b.Property<bool>("MarketingEmailOptOut")
+                        .HasColumnType("boolean")
+                        .HasColumnName("marketing_email_opt_out");
+
+                    b.Property<int>("NotificationVolume")
+                        .HasColumnType("integer")
+                        .HasColumnName("notification_volume");
 
                     b.HasKey("Id");
 
@@ -2316,6 +2366,25 @@ namespace Valour.Database.Migrations
                     b.Navigation("Planet");
                 });
 
+            modelBuilder.Entity("Valour.Database.PlanetEmoji", b =>
+                {
+                    b.HasOne("Valour.Database.User", "CreatorUser")
+                        .WithMany()
+                        .HasForeignKey("CreatorUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Valour.Database.Planet", "Planet")
+                        .WithMany("Emojis")
+                        .HasForeignKey("PlanetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CreatorUser");
+
+                    b.Navigation("Planet");
+                });
+
             modelBuilder.Entity("Valour.Database.PlanetInvite", b =>
                 {
                     b.HasOne("Valour.Database.Planet", "Planet")
@@ -2539,6 +2608,8 @@ namespace Valour.Database.Migrations
             modelBuilder.Entity("Valour.Database.Planet", b =>
                 {
                     b.Navigation("Channels");
+
+                    b.Navigation("Emojis");
 
                     b.Navigation("Invites");
 

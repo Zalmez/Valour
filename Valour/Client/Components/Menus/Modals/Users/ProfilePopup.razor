@@ -54,13 +54,15 @@
         _user = user;
         
         _profile = await _user.FetchProfileAsync();
-        
+        if (_profile is null)
+            return;
+
         _hidden = false;
 
         _needsPositioning = true;
-        
+
         StateHasChanged();
-        
+
         await _profileCard.LoadDetailsAsync();
     }
 

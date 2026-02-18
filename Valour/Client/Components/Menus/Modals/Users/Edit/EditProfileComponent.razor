@@ -289,14 +289,15 @@
             return;
         }
 
-        byte[] data = new byte[file.Size];
-        var read = await file.OpenReadStream(10485760).ReadAsync(data);
+        using var ms = new MemoryStream();
+        await file.OpenReadStream(10485760).CopyToAsync(ms);
+        var data = ms.ToArray();
 
         var content = new MultipartFormDataContent();
-        var arrContent = new ByteArrayContent(data);
-        arrContent.Headers.ContentType = new MediaTypeHeaderValue(file.ContentType);
+        var streamContent = new StreamContent(new MemoryStream(data));
+        streamContent.Headers.ContentType = new MediaTypeHeaderValue(file.ContentType);
 
-        content.Add(arrContent, file.Name, file.Name);
+        content.Add(streamContent, "file", file.Name);
 
         var result = await Client.PrimaryNode.PostMultipartDataWithResponse<string>($"upload/profilebg", content);
 

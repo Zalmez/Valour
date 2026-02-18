@@ -1,5 +1,6 @@
 @using Valour.Client.Notifications
 @inject IPushNotificationService PushService
+@inject ValourClient Client
 
 @code {
 
@@ -8,6 +9,20 @@
     protected override void OnInitialized()
     {
         Instance = this;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        // If the user is logged in and previously opted into push notifications,
+        // re-subscribe to keep the server-side subscription alive (it expires after 7 days)
+        // and to handle cases where the initial login subscription was skipped or failed.
+        if (Client.IsLoggedIn && await PushService.IsNotificationsEnabledAsync())
+        {
+            await PushService.RequestSubscriptionAsync();
+        }
     }
 
     public Task<PushSubscriptionResult> RequestSubscriptionAsync()

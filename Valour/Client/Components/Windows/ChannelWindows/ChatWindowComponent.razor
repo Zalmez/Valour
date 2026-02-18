@@ -3,7 +3,9 @@
 @inject IJSRuntime JsRuntime
 @inject ValourClient Client
 @inject UnreadService UnreadService
+@using Valour.Client.Emojis
 @using Valour.Sdk.Nodes
+@using Valour.Shared.Models
 @using Channel = Valour.Sdk.Models.Channel
 
 @if (_loading)
@@ -105,67 +107,72 @@ else
             options.Add(delete);
         }
         
-        // Always add reaction option
-        var reaction = new RadialPalette.Option()
+        // Add reaction options if user has permission
+        if (ChannelPermissions is null ||
+            ChannelPermissions.GetPermissionState(ChatChannelPermissions.UseReactions) == PermissionState.True)
         {
-            Id = "reaction",
-            Icon = "emoji-smile",
-            Name = "React",
-            Action = (e) =>
+            var reaction = new RadialPalette.Option()
             {
-                _currentlyReactingMessage = message;
-                
-                // Reposition
-                _reactionSelectorLeft = (BrowserUtils.WindowDimensions.Width - e.ClientX) + "px";
-                _reactionSelectorTop = Math.Min(BrowserUtils.WindowDimensions.Height - e.ClientY, 350) + "px";
-                
-                // Re-render JUST the emoji selector
-                _reactionSelectorRenderWrapper.ReRender();
-                
-                _reactionSelector.ToggleVisible();
-                
-                // Close hover menu
-                _hoverMenu.SetVisible(false);
-                
-                return Task.CompletedTask;
-            }
-        };
-        
-        // Always add three most recent reactions
-        var reaction1 = new RadialPalette.Option()
-        {
-            Emoji = "😀",
-            Name = "😀",
-            Action = async (_) =>
+                Id = "reaction",
+                Icon = "emoji-smile",
+                Name = "React",
+                Action = (e) =>
+                {
+                    _currentlyReactingMessage = message;
+
+                    // Reposition
+                    _reactionSelectorLeft = (BrowserUtils.WindowDimensions.Width - e.ClientX) + "px";
+                    _reactionSelectorTop = Math.Min(BrowserUtils.WindowDimensions.Height - e.ClientY, 350) + "px";
+
+                    // Re-render JUST the emoji selector
+                    _reactionSelectorRenderWrapper.ReRender();
+
+                    _ = RefreshReactionEmojiPickerAsync();
+
+                    _reactionSelector.ToggleVisible();
+
+                    // Close hover menu
+                    _hoverMenu.SetVisible(false);
+
+                    return Task.CompletedTask;
+                }
+            };
+
+            var reaction1 = new RadialPalette.Option()
             {
-                await message.AddReactionAsync("😀");
-            }
-        };
-        
-        var reaction2 = new RadialPalette.Option()
-        {
-            Emoji = "💀",
-            Name = "💀",
-            Action = async (_) =>
+                Emoji = "😀",
+                Name = "😀",
+                Action = async (_) =>
+                {
+                    await message.AddReactionAsync("😀");
+                }
+            };
+
+            var reaction2 = new RadialPalette.Option()
             {
-                await message.AddReactionAsync("💀");
-            }
-        };
-        
-        var reaction3 = new RadialPalette.Option()
-        {
-            Emoji = "🚀",
-            Name = "🚀",
-            Action = async (_) =>
+                Emoji = "💀",
+                Name = "💀",
+                Action = async (_) =>
+                {
+                    await message.AddReactionAsync("💀");
+                }
+            };
+
+            var reaction3 = new RadialPalette.Option()
             {
-                await message.AddReactionAsync("🚀");
-            }
-        };
-        
-        options.Add(reaction);
-        options.Add(reaction1);
-        options.Add(reaction2);
-        options.Add(reaction3);
+                Emoji = "🚀",
+                Name = "🚀",
+                Action = async (_) =>
+                {
+                    await message.AddReactionAsync("🚀");
+                }
+            };
+
+            options.Add(reaction);
+            options.Add(reaction1);
+            options.Add(reaction2);
+            options.Add(reaction3);
+        }
         
         return options;
     }
@@ -181,6 +188,7 @@ else
     private Message _currentlyReactingMessage;
     private string _reactionSelectorLeft;
     private string _reactionSelectorTop;
+    private bool _pendingReactionEmojiRefresh;
     
     private bool _loading = true;
 
@@ -253,12 +261,34 @@ else
         _reactionSelector.ToggleVisible();
         
         if (_currentlyReactingMessage is null) return;
-        await _currentlyReactingMessage.AddReactionAsync(e.Native);
+
+        var reactionValue = e.IsCustom
+            ? (e.Token ?? e.Shortcodes)
+            : e.Native;
+
+        if (string.IsNullOrWhiteSpace(reactionValue))
+            return;
+
+        await _currentlyReactingMessage.AddReactionAsync(reactionValue);
+    }
+
+    private Task RefreshReactionEmojiPickerAsync()
+    {
+        if (_reactionSelector is null)
+        {
+            _pendingReactionEmojiRefresh = true;
+            return Task.CompletedTask;
+        }
+
+        var custom = PlanetEmojiMapper.GetPickerItems(Channel?.Planet);
+        var categoryName = string.IsNullOrWhiteSpace(Channel?.Planet?.Name) ? "Planet" : Channel.Planet.Name;
+        var categoryIcon = Channel?.Planet?.GetIconUrl(IconFormat.Webp64);
+        return _reactionSelector.SetCustomEmojisAsync(custom, categoryIcon, categoryName);
     }
     
     private Task OnClickOutsideReactionPicker(OutsidePickerClickEvent e)
     {
-        if (e.Target.ToLower().Contains("option"))
+        if ((e.Target ?? string.Empty).ToLower().Contains("option"))
             return Task.CompletedTask;
         
         _reactionSelector.ToggleVisible();
@@ -363,6 +393,7 @@ else
         }
 
         _loading = false;
+        _pendingReactionEmojiRefresh = true;
 
         if (InputComponent is not null)
             await InputComponent.NotifyChannelLoadedAsync();
@@ -385,6 +416,12 @@ else
             _jsService = await _jsModule.InvokeAsync<IJSObjectReference>("init", _thisRef, MessageWrapperEl);
 
             await ScrollToBottom(true);
+        }
+
+        if (_pendingReactionEmojiRefresh && !_loading && _reactionSelector is not null)
+        {
+            _pendingReactionEmojiRefresh = false;
+            await RefreshReactionEmojiPickerAsync();
         }
         
         UnreadService.MarkChannelRead(Channel.PlanetId, Channel.Id);

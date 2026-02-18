@@ -29,6 +29,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ChannelDragManager>();
         services.AddSingleton<SoundManager>();
         services.AddSingleton<ContextMenuService>();
+        services.AddSingleton<INativeWindowService, NoopNativeWindowService>();
 
         // new services
         services.AddSingleton(client);
@@ -58,3 +59,4 @@ public static class ServiceCollectionExtensions
         return client;
     }
 }
+

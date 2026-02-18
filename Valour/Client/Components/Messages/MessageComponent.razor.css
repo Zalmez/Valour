@@ -166,7 +166,8 @@
 .message .author-avatar {
     background-position: center;
     background-size: cover;
-    
+    cursor: pointer;
+
     width: 38px;
     height: 38px;
     min-width: 38px;

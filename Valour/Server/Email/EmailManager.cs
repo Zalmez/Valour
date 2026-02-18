@@ -50,4 +50,33 @@ public class EmailManager
         // Send the email
         return await client.SendEmailAsync(email, cancellationToken);
     }
+
+    /// <summary>
+    /// Sends a marketing email with List-Unsubscribe headers (RFC 8058).
+    /// Marketing emails include unsubscribe mechanisms required by CAN-SPAM and Gmail/Yahoo 2024 rules.
+    /// </summary>
+    public static async Task<Response> SendMarketingEmailAsync(
+        string address,
+        string subject,
+        string message,
+        string html,
+        string unsubscribeUrl,
+        CancellationToken cancellationToken = default)
+    {
+        EmailAddress from = new EmailAddress("automated@valour.gg", "Valour");
+        EmailAddress to = new EmailAddress(address);
+
+        Console.WriteLine($"Sending marketing email to {address}.");
+
+        SendGridMessage email = MailHelper.CreateSingleEmail(from, to, subject, message, html);
+
+        // Privacy
+        email.SetClickTracking(false, false);
+
+        // RFC 8058 List-Unsubscribe headers
+        email.AddHeader("List-Unsubscribe", $"<{unsubscribeUrl}>, <mailto:unsubscribe@valour.gg>");
+        email.AddHeader("List-Unsubscribe-Post", "List-Unsubscribe=One-Click");
+
+        return await client.SendEmailAsync(email, cancellationToken);
+    }
 }

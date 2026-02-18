@@ -130,6 +130,34 @@ public class StaffApi
     }
 
     [StaffRequired]
+    [ValourRoute(HttpVerbs.Post, "api/staff/email/send")]
+    public static async Task<IResult> SendMassEmailAsync(
+        HttpContext ctx,
+        UserService userService,
+        StaffService staffService,
+        [FromBody] SendMassEmailRequest request)
+    {
+        var requestor = await userService.GetCurrentUserAsync();
+
+        if (requestor.Id != 12200448886571008)
+            return ValourResult.Forbid("SuperAdmins only.");
+
+        if (string.IsNullOrWhiteSpace(request.Subject))
+            return ValourResult.BadRequest("Subject is required.");
+
+        if (string.IsNullOrWhiteSpace(request.HtmlBody))
+            return ValourResult.BadRequest("Body is required.");
+
+        var baseUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host.ToUriComponent()}";
+
+        var result = await staffService.SendMassEmailAsync(request.Subject, request.HtmlBody, baseUrl);
+        if (!result.Success)
+            return ValourResult.BadRequest(result.Message);
+
+        return ValourResult.Ok(result.Message);
+    }
+
+    [StaffRequired]
     [ValourRoute(HttpVerbs.Get, "api/staff/messages/{messageId}")]
     public static async Task<IResult> GetMessageAsync(
         StaffService staffService,

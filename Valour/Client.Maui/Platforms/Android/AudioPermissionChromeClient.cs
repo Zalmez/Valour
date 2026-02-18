@@ -1,4 +1,5 @@
 using Android.Content;
+using Android.OS;
 using Android.Webkit;
 
 namespace Valour.Client.Maui;
@@ -9,6 +10,28 @@ namespace Valour.Client.Maui;
 /// </summary>
 public class AudioPermissionChromeClient : WebChromeClient
 {
+    /// <summary>
+    /// Handles target="_blank" link clicks by opening them in the system browser.
+    /// Without this, all target="_blank" links are silently consumed by the WebView.
+    /// </summary>
+    public override bool OnCreateWindow(Android.Webkit.WebView? view, bool isDialog, bool isUserGesture, Message? resultMsg)
+    {
+        if (view is null)
+            return false;
+
+        var hitTestResult = view.GetHitTestResult();
+        var url = hitTestResult?.Extra;
+
+        if (!string.IsNullOrEmpty(url))
+        {
+            var intent = new Intent(Intent.ActionView, Android.Net.Uri.Parse(url));
+            intent.AddFlags(ActivityFlags.NewTask);
+            view.Context?.StartActivity(intent);
+        }
+
+        return false;
+    }
+
     public const int FileChooserRequestCode = 1001;
 
     private static IValueCallback? _filePathCallback;

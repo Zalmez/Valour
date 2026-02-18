@@ -26,7 +26,7 @@
     private RenderFragment ThemesContent => @<EditThemeComponent />;
     private RenderFragment SubscriptionsContent => @<EditSubscriptionsComponent />;
     private RenderFragment ReferralsContent => @<EditReferralsComponent />;
-    private RenderFragment PermissionsContent => @<EditUserNotificationsComponent />;
+    private RenderFragment NotificationsContent => @<EditUserNotificationsComponent />;
     private RenderFragment DevicePreferencesContent => @<EditDevicePreferencesComponent />;
     private RenderFragment SessionsContent => @<EditSessionsComponent />;
     private RenderFragment LogOutContent => @<div></div>;
@@ -43,9 +43,12 @@
             <TabThree>
                 <StaffVerifyUserComponent />
             </TabThree>
+            <TabFour>
+                <StaffEmailComponent />
+            </TabFour>
         </TabContainerComponent>;
 
-    private readonly string[] _staffTabs = new[] { "Members", "Reports", "Verify" };
+    private readonly string[] _staffTabs = new[] { "Members", "Reports", "Verify", "Email Users" };
 
     private List<MainMenu.MenuCategory> _categories;
     
@@ -102,10 +105,10 @@
                     },
                     new MainMenu.MenuItem()
                     {
-                        Name = "Permissions",
-                        Icon = "sign-stop-lights-fill",
-                        Description = "Manage app permissions",
-                        Content = PermissionsContent
+                        Name = "Notifications",
+                        Icon = "bell-fill",
+                        Description = "Manage notification preferences and sound",
+                        Content = NotificationsContent
                     },
                     new MainMenu.MenuItem()
                     {
@@ -157,6 +160,13 @@
 
     protected override void OnInitialized()
     {
+        // Backward compatibility for callers using previous menu item names.
+        if (string.Equals(Data.StartItem, "Permissions", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(Data.StartItem, "Notification Options", StringComparison.OrdinalIgnoreCase))
+        {
+            Data.StartItem = "Notifications";
+        }
+
         _categories = BuildCategories();
 
         // Add staff category if user is staff

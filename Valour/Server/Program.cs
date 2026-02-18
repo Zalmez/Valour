@@ -115,7 +115,7 @@ public partial class Program
         // Add API routes
         BaseAPI.AddRoutes(app);
         EmbedAPI.AddRoutes(app);
-        OauthAPI.AddRoutes(app);
+        OauthAppApi.StartCodeCleanupTask();
         VoiceSignallingApi.AddRoutes(app);
         
         // s3 (r2) setup
@@ -156,6 +156,7 @@ public partial class Program
             new DynamicAPI<ChannelApi>().RegisterRoutes(app),
             new DynamicAPI<PlanetMemberApi>().RegisterRoutes(app),
             new DynamicAPI<PlanetRoleApi>().RegisterRoutes(app),
+            new DynamicAPI<PlanetEmojiApi>().RegisterRoutes(app),
             new DynamicAPI<PlanetInviteApi>().RegisterRoutes(app),
             new DynamicAPI<PlanetBanApi>().RegisterRoutes(app),
             new DynamicAPI<PermissionsNodeApi>().RegisterRoutes(app),
@@ -174,7 +175,8 @@ public partial class Program
             new DynamicAPI<MessageApi>().RegisterRoutes(app),
             new DynamicAPI<UnreadApi>().RegisterRoutes(app),
             new DynamicAPI<TagApi>().RegisterRoutes(app),
-            new DynamicAPI<BotApi>().RegisterRoutes(app)
+            new DynamicAPI<BotApi>().RegisterRoutes(app),
+            new DynamicAPI<UnsubscribeApi>().RegisterRoutes(app)
         };
 
         NodeAPI = new NodeAPI();
@@ -370,6 +372,7 @@ public partial class Program
         services.AddScoped<PlanetInviteService>();
         services.AddScoped<PlanetMemberService>();
         services.AddScoped<PlanetRoleService>();
+        services.AddScoped<PlanetEmojiService>();
         services.AddScoped<PlanetService>();
         services.AddScoped<TenorFavoriteService>();
         services.AddScoped<AutomodService>();

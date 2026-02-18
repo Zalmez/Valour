@@ -1,3 +1,4 @@
+using Valour.Server.Email;
 using Valour.Shared;
 using Valour.Shared.Models;
 using Valour.Shared.Models.Staff;
@@ -161,6 +162,66 @@ public class StaffService
         await _db.SaveChangesAsync();
 
         return TaskResult.SuccessResult;
+    }
+
+    public async Task<TaskResult> SendMassEmailAsync(string subject, string htmlBody, string baseUrl)
+    {
+        // These are administrative emails (ToS/privacy updates) — all verified users must receive them.
+        // Unsubscribe headers are included for deliverability but don't gate sending.
+        var recipients = await _db.PrivateInfos
+            .Where(x => x.Verified)
+            .Select(x => new { x.Email, x.UserId })
+            .ToListAsync();
+
+        if (recipients.Count == 0)
+            return TaskResult.FromFailure("No verified emails found.");
+
+        var bodyContent = $@"
+                <h1 style='color: #333;'>{subject}</h1>
+                {htmlBody}
+                <p style='color: #666;'>— Valour Team</p>";
+
+        var sent = 0;
+        var batchCount = 0;
+        foreach (var recipient in recipients)
+        {
+            try
+            {
+                var token = UnsubscribeTokenService.GenerateToken(recipient.UserId);
+                var unsubscribeUrl = $"{baseUrl}/api/email/unsubscribe?token={token}";
+                var oneclickUrl = $"{baseUrl}/api/email/unsubscribe/oneclick?token={token}";
+
+                var wrappedHtml = EmailTemplateHelper.WrapInTemplate(bodyContent, unsubscribeUrl);
+
+                await EmailManager.SendMarketingEmailAsync(
+                    recipient.Email,
+                    subject,
+                    htmlBody,
+                    wrappedHtml,
+                    oneclickUrl);
+
+                sent++;
+                batchCount++;
+
+                // Rate limiting: ~10 emails/sec
+                await Task.Delay(100);
+
+                // Extra pause every 100 emails to protect sender reputation
+                if (batchCount >= 100)
+                {
+                    batchCount = 0;
+                    await Task.Delay(2000);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send mass email to {Email}", recipient.Email);
+            }
+        }
+
+        _logger.LogInformation("Mass email sent to {Sent}/{Total} eligible users.", sent, recipients.Count);
+
+        return TaskResult.FromSuccess($"Email sent to {sent} of {recipients.Count} eligible users.");
     }
 
     public async Task<TaskResult> VerifyUserByIdentifierAsync(string identifier)

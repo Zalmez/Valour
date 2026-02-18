@@ -303,6 +303,9 @@ public class AutomodService
         return actions;
     }
 
+    private static bool IsMessageBlockAction(AutomodActionType actionType) =>
+        actionType is AutomodActionType.DeleteMessage or AutomodActionType.BlockMessage;
+
     private async Task RunActionsAsync(IEnumerable<AutomodAction> actions, PlanetMember member, Message? message)
     {
         await using var scope = _serviceProvider.CreateAsyncScope();
@@ -313,102 +316,172 @@ public class AutomodService
 
         foreach (var action in actions)
         {
-            switch (action.ActionType)
+            try
             {
-                case AutomodActionType.Kick:
-                    await memberService.DeleteAsync(member.Id);
-                    break;
-                case AutomodActionType.Ban:
-                    var ban = new PlanetBan
-                    {
-                        Id = IdManager.Generate(),
-                        PlanetId = member.PlanetId,
-                        TargetId = member.UserId,
-                        IssuerId = action.MemberAddedBy,
-                        Reason = action.Message,
-                        TimeCreated = DateTime.UtcNow,
-                        TimeExpires = action.Expires
-                    };
-                    await banService.CreateAsync(ban, member);
-                    break;
-                case AutomodActionType.AddRole:
-                    if (action.RoleId.HasValue)
-                        await memberService.AddRoleAsync(member.PlanetId, member.Id, action.RoleId.Value);
-                    break;
-                case AutomodActionType.RemoveRole:
-                    if (action.RoleId.HasValue)
-                        await memberService.RemoveRoleAsync(member.PlanetId, member.Id, action.RoleId.Value);
-                    break;
-                case AutomodActionType.DeleteMessage:
-                    if (message is not null)
-                        await messageService.DeleteMessageAsync(message.Id);
-                    break;
-                case AutomodActionType.Respond:
-                    long targetMemberId;
-                    long targetChannelId;
-                    long targetPlanetId;
-
-                    if (message is not null)
-                    {
-                        if (message.AuthorMemberId is null)
-                            break;
-
-                        targetMemberId = message.AuthorMemberId.Value;
-                        targetChannelId = message.ChannelId;
-                        targetPlanetId = message.PlanetId ?? member.PlanetId;
-                    }
-                    else
-                    {
-                        var defaultChannel = await planetService.GetPrimaryChannelAsync(member.PlanetId);
-                        if (defaultChannel is null)
+                switch (action.ActionType)
+                {
+                    case AutomodActionType.Kick:
                         {
-                            _logger.LogWarning(
-                                "Automod respond action {ActionId} could not find default channel for planet {PlanetId}",
-                                action.Id, member.PlanetId);
+                            var kickResult = await memberService.DeleteAsync(member.Id);
+                            if (!kickResult.Success)
+                            {
+                                _logger.LogWarning(
+                                    "Automod kick action {ActionId} failed for member {MemberId}: {Reason}",
+                                    action.Id,
+                                    member.Id,
+                                    kickResult.Message);
+                            }
                             break;
                         }
-
-                        targetMemberId = member.Id;
-                        targetChannelId = defaultChannel.Id;
-                        targetPlanetId = member.PlanetId;
-                    }
-
-                    var response = new Message
-                    {
-                        Id = IdManager.Generate(),
-                        ChannelId = targetChannelId,
-                        AuthorMemberId = null,
-                        AuthorUserId = ISharedUser.VictorUserId,
-                        Content = $"«@m-{targetMemberId}» {action.Message ?? string.Empty}",
-                        TimeSent = DateTime.UtcNow,
-                        PlanetId = targetPlanetId,
-                        Fingerprint = Guid.NewGuid().ToString(),
-                        MentionsData = JsonSerializer.Serialize(new List<Mention>()
+                    case AutomodActionType.Ban:
                         {
-                            new Mention(){ TargetId = targetMemberId, Type = MentionType.PlanetMember}
-                        })
-                    };
+                            var issuerMember = await memberService.GetAsync(action.MemberAddedBy);
+                            if (issuerMember is null)
+                            {
+                                _logger.LogWarning(
+                                    "Automod ban action {ActionId} failed: issuer member {IssuerMemberId} not found",
+                                    action.Id,
+                                    action.MemberAddedBy);
+                                break;
+                            }
 
-                    var responseResult = await messageService.PostMessageAsync(response);
-                    if (!responseResult.Success)
-                    {
-                        _logger.LogWarning(
-                            "Automod respond action {ActionId} failed to post message in planet {PlanetId}: {Reason}",
-                            action.Id, targetPlanetId, responseResult.Message);
+                            var ban = new PlanetBan
+                            {
+                                Id = IdManager.Generate(),
+                                PlanetId = member.PlanetId,
+                                TargetId = member.UserId,
+                                IssuerId = issuerMember.UserId,
+                                Reason = action.Message,
+                                TimeCreated = DateTime.UtcNow,
+                                TimeExpires = action.Expires
+                            };
+
+                            var banResult = await banService.CreateAsync(ban, issuerMember);
+                            if (!banResult.Success)
+                            {
+                                _logger.LogWarning(
+                                    "Automod ban action {ActionId} failed for member {MemberId}: {Reason}",
+                                    action.Id,
+                                    member.Id,
+                                    banResult.Message);
+                            }
+                            break;
+                        }
+                    case AutomodActionType.AddRole:
+                        {
+                            if (!action.RoleId.HasValue)
+                            {
+                                _logger.LogWarning("Automod add role action {ActionId} skipped: RoleId missing", action.Id);
+                                break;
+                            }
+
+                            var addRoleResult = await memberService.AddRoleAsync(member.PlanetId, member.Id, action.RoleId.Value);
+                            if (!addRoleResult.Success)
+                            {
+                                _logger.LogWarning(
+                                    "Automod add role action {ActionId} failed for member {MemberId}: {Reason}",
+                                    action.Id,
+                                    member.Id,
+                                    addRoleResult.Message);
+                            }
+                            break;
+                        }
+                    case AutomodActionType.RemoveRole:
+                        {
+                            if (!action.RoleId.HasValue)
+                            {
+                                _logger.LogWarning("Automod remove role action {ActionId} skipped: RoleId missing", action.Id);
+                                break;
+                            }
+
+                            var removeRoleResult = await memberService.RemoveRoleAsync(member.PlanetId, member.Id, action.RoleId.Value);
+                            if (!removeRoleResult.Success)
+                            {
+                                _logger.LogWarning(
+                                    "Automod remove role action {ActionId} failed for member {MemberId}: {Reason}",
+                                    action.Id,
+                                    member.Id,
+                                    removeRoleResult.Message);
+                            }
+                            break;
+                        }
+                    case AutomodActionType.DeleteMessage:
+                    case AutomodActionType.BlockMessage:
+                        // Message-level blocking is decided before posting in ScanMessageAsync.
+                        break;
+                    case AutomodActionType.Respond:
+                        long targetMemberId;
+                        long targetChannelId;
+                        long targetPlanetId;
+
+                        if (message is not null)
+                        {
+                            if (message.AuthorMemberId is null)
+                                break;
+
+                            targetMemberId = message.AuthorMemberId.Value;
+                            targetChannelId = message.ChannelId;
+                            targetPlanetId = message.PlanetId ?? member.PlanetId;
+                        }
+                        else
+                        {
+                            var defaultChannel = await planetService.GetPrimaryChannelAsync(member.PlanetId);
+                            if (defaultChannel is null)
+                            {
+                                _logger.LogWarning(
+                                    "Automod respond action {ActionId} could not find default channel for planet {PlanetId}",
+                                    action.Id, member.PlanetId);
+                                break;
+                            }
+
+                            targetMemberId = member.Id;
+                            targetChannelId = defaultChannel.Id;
+                            targetPlanetId = member.PlanetId;
+                        }
+
+                        var response = new Message
+                        {
+                            Id = IdManager.Generate(),
+                            ChannelId = targetChannelId,
+                            AuthorMemberId = null,
+                            AuthorUserId = ISharedUser.VictorUserId,
+                            Content = $"«@m-{targetMemberId}» {action.Message ?? string.Empty}",
+                            TimeSent = DateTime.UtcNow,
+                            PlanetId = targetPlanetId,
+                            Fingerprint = Guid.NewGuid().ToString(),
+                            MentionsData = JsonSerializer.Serialize(new List<Mention>()
+                            {
+                                new Mention(){ TargetId = targetMemberId, Type = MentionType.PlanetMember}
+                            })
+                        };
+
+                        var responseResult = await messageService.PostMessageAsync(response);
+                        if (!responseResult.Success)
+                        {
+                            _logger.LogWarning(
+                                "Automod respond action {ActionId} failed to post message in planet {PlanetId}: {Reason}",
+                                action.Id, targetPlanetId, responseResult.Message);
+                        }
+                        break;
                     }
-                    break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Automod action {ActionId} ({ActionType}) failed for member {MemberId}",
+                    action.Id,
+                    action.ActionType,
+                    member.Id);
             }
         }
     }
 
-    private async Task<List<AutomodAction>> FilterActionsByStrikesAsync(IEnumerable<AutomodAction> actions, PlanetMember member, Guid triggerId)
+    private static List<AutomodAction> FilterActionsByStrikes(IEnumerable<AutomodAction> actions, int globalCount, int triggerCount)
     {
-        var globalCount = await _db.AutomodLogs.CountAsync(l => l.PlanetId == member.PlanetId && l.MemberId == member.Id);
-        var triggerCount = await _db.AutomodLogs.CountAsync(l => l.TriggerId == triggerId && l.MemberId == member.Id);
-
         return actions.Where(a =>
-            a.Strikes <= 1 ||
-            (a.UseGlobalStrikes ? globalCount >= a.Strikes : triggerCount >= a.Strikes))
+                a.Strikes <= 1 ||
+                (a.UseGlobalStrikes ? globalCount >= a.Strikes : triggerCount >= a.Strikes))
             .ToList();
     }
 
@@ -462,33 +535,62 @@ public class AutomodService
             return true;
 
         var recent = await _serviceProvider.GetRequiredService<ChatCacheService>().GetLastMessagesAsync(message.ChannelId);
-        bool allow = true;
+        var matchedTriggers = triggers
+            .Where(t => t.Type != AutomodTriggerType.Join && CheckTrigger(t, message, recent))
+            .ToList();
 
-        foreach (var trigger in triggers.Where(t => t.Type != AutomodTriggerType.Join))
+        if (matchedTriggers.Count == 0)
+            return true;
+
+        var matchedTriggerIds = matchedTriggers.Select(t => t.Id).ToList();
+        var actionsByTrigger = new Dictionary<Guid, List<AutomodAction>>(matchedTriggers.Count);
+        foreach (var trigger in matchedTriggers)
         {
-            if (!CheckTrigger(trigger, message, recent))
+            actionsByTrigger[trigger.Id] = await GetCachedActionsAsync(trigger.Id);
+        }
+
+        var now = DateTime.UtcNow;
+        var logs = matchedTriggers.Select(trigger => new Valour.Database.AutomodLog
+        {
+            Id = Guid.NewGuid(),
+            PlanetId = member.PlanetId,
+            TriggerId = trigger.Id,
+            MemberId = member.Id,
+            MessageId = message.Id,
+            TimeTriggered = now
+        }).ToList();
+
+        await _db.AutomodLogs.AddRangeAsync(logs);
+        await _db.SaveChangesAsync();
+
+        var globalCount = await _db.AutomodLogs.CountAsync(l => l.PlanetId == member.PlanetId && l.MemberId == member.Id);
+        var triggerCounts = await _db.AutomodLogs
+            .Where(l => l.MemberId == member.Id && matchedTriggerIds.Contains(l.TriggerId))
+            .GroupBy(l => l.TriggerId)
+            .Select(g => new { TriggerId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.TriggerId, x => x.Count);
+
+        var actionsToRun = new List<AutomodAction>();
+        var allow = true;
+
+        foreach (var trigger in matchedTriggers)
+        {
+            if (!actionsByTrigger.TryGetValue(trigger.Id, out var actions) || actions.Count == 0)
                 continue;
 
-            var actions = await GetCachedActionsAsync(trigger.Id);
+            triggerCounts.TryGetValue(trigger.Id, out var triggerCount);
+            var filteredActions = FilterActionsByStrikes(actions, globalCount, triggerCount);
+            if (filteredActions.Count == 0)
+                continue;
 
-            var log = new Valour.Database.AutomodLog
-            {
-                Id = Guid.NewGuid(),
-                PlanetId = member.PlanetId,
-                TriggerId = trigger.Id,
-                MemberId = member.Id,
-                MessageId = message.Id,
-                TimeTriggered = DateTime.UtcNow
-            };
-            await _db.AutomodLogs.AddAsync(log);
-            await _db.SaveChangesAsync();
-
-            actions = await FilterActionsByStrikesAsync(actions, member, trigger.Id);
-            await RunActionsAsync(actions, member, message);
-
-            if (actions.Any(a => a.ActionType == AutomodActionType.DeleteMessage))
+            if (filteredActions.Any(a => IsMessageBlockAction(a.ActionType)))
                 allow = false;
+
+            actionsToRun.AddRange(filteredActions.Where(a => !IsMessageBlockAction(a.ActionType)));
         }
+
+        if (actionsToRun.Count > 0)
+            await RunActionsAsync(actionsToRun, member, message);
 
         return allow;
     }
@@ -498,24 +600,54 @@ public class AutomodService
         if (await _permissionService.HasPlanetPermissionAsync(member, PlanetPermissions.BypassAutomod))
             return;
 
-        var triggers = await GetCachedTriggersAsync(member.PlanetId);
-        foreach (var trigger in triggers.Where(t => t.Type == AutomodTriggerType.Join))
-        {
-            var actions = await GetCachedActionsAsync(trigger.Id);
-            var log = new Valour.Database.AutomodLog
-            {
-                Id = Guid.NewGuid(),
-                PlanetId = member.PlanetId,
-                TriggerId = trigger.Id,
-                MemberId = member.Id,
-                MessageId = null,
-                TimeTriggered = DateTime.UtcNow
-            };
-            await _db.AutomodLogs.AddAsync(log);
-            await _db.SaveChangesAsync();
+        var joinTriggers = (await GetCachedTriggersAsync(member.PlanetId))
+            .Where(t => t.Type == AutomodTriggerType.Join)
+            .ToList();
+        if (joinTriggers.Count == 0)
+            return;
 
-            actions = await FilterActionsByStrikesAsync(actions, member, trigger.Id);
-            await RunActionsAsync(actions, member, null);
+        var joinTriggerIds = joinTriggers.Select(t => t.Id).ToList();
+        var actionsByTrigger = new Dictionary<Guid, List<AutomodAction>>(joinTriggers.Count);
+        foreach (var trigger in joinTriggers)
+        {
+            actionsByTrigger[trigger.Id] = await GetCachedActionsAsync(trigger.Id);
+        }
+
+        var now = DateTime.UtcNow;
+        var logs = joinTriggers.Select(trigger => new Valour.Database.AutomodLog
+        {
+            Id = Guid.NewGuid(),
+            PlanetId = member.PlanetId,
+            TriggerId = trigger.Id,
+            MemberId = member.Id,
+            MessageId = null,
+            TimeTriggered = now
+        }).ToList();
+
+        await _db.AutomodLogs.AddRangeAsync(logs);
+        await _db.SaveChangesAsync();
+
+        var globalCount = await _db.AutomodLogs.CountAsync(l => l.PlanetId == member.PlanetId && l.MemberId == member.Id);
+        var triggerCounts = await _db.AutomodLogs
+            .Where(l => l.MemberId == member.Id && joinTriggerIds.Contains(l.TriggerId))
+            .GroupBy(l => l.TriggerId)
+            .Select(g => new { TriggerId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.TriggerId, x => x.Count);
+
+        foreach (var trigger in joinTriggers)
+        {
+            if (!actionsByTrigger.TryGetValue(trigger.Id, out var actions) || actions.Count == 0)
+                continue;
+
+            triggerCounts.TryGetValue(trigger.Id, out var triggerCount);
+            var filteredActions = FilterActionsByStrikes(actions, globalCount, triggerCount)
+                .Where(a => !IsMessageBlockAction(a.ActionType))
+                .ToList();
+
+            if (filteredActions.Count == 0)
+                continue;
+
+            await RunActionsAsync(filteredActions, member, null);
         }
     }
 }

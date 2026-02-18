@@ -123,10 +123,6 @@
 		WindowService.FocusedPlanetChanged -= OnPlanetChange;
 	}
 
-	protected override async void OnAfterRender(bool firstRender)
-	{
-	}
-
 	private Task OnPlanetChange(Planet planet)
 	{
 		if (planet != null)

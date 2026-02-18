@@ -1,55 +1,53 @@
-﻿@inherits Modal<EditChannelListItemComponent.ModalParams>
-@implements IDisposable
+@inherits Modal<EditChannelListItemComponent.ModalParams>
 
-<BigMenuComponent @ref="BigMenu">
-    <LeftSide>
-        <EditChannelListItemMenuComponent ChannelListItem="@Data.ChannelListItem"></EditChannelListItemMenuComponent>
-    </LeftSide>
-    <RightSide>
-        @switch (BigMenu.SelectedTopLevelMenu?.Name)
-        {
-            case "General Settings":
-                switch (BigMenu.SelectedSubMenu.Name)
-                {
-                    case "Info":
-                        <EditCLIDetailsComponent Channel="@Data.ChannelListItem"></EditCLIDetailsComponent>
-                        break;
-                    case "Permissions":
-                        <EditCLIPermissionsComponent Target="@Data.ChannelListItem"></EditCLIPermissionsComponent>
-                        break;
-                }
-                break;
-        }
-    </RightSide>
-</BigMenuComponent>
+<MainMenuComponent
+    DefaultCategory="@Data.StartCategory"
+    DefaultItem="@Data.StartItem"
+    MenuCategories="@_categories" />
 
 @code {
 
     public class ModalParams
     {
-        public Channel ChannelListItem;
+        public Channel Channel;
+        public string StartCategory;
+        public string StartItem;
     }
 
-    private BigMenuComponent BigMenu { get; set; }
+    private List<MainMenu.MenuCategory> _categories;
 
-    public void Dispose()
+    private RenderFragment InfoContent => @<EditCLIDetailsComponent Channel="@Data.Channel" />;
+    private RenderFragment PermissionsContent => @<EditCLIPermissionsComponent Target="@Data.Channel" />;
+
+    protected override void OnInitialized()
     {
-        BigMenu.OnRefreshRightSide -= Refresh;
+        _categories = BuildCategories();
     }
 
-    protected override Task OnAfterRenderAsync(bool firstRender)
-    {
-
-        if (firstRender)
+    private List<MainMenu.MenuCategory> BuildCategories() =>
+        new List<MainMenu.MenuCategory>()
         {
-            BigMenu.OnRefreshRightSide += Refresh;
-        }
-        return base.OnAfterRenderAsync(firstRender);
-    }
-
-    private void Refresh()
-    {
-        StateHasChanged();
-    }
-    
+            new MainMenu.MenuCategory()
+            {
+                Name = "General Settings",
+                Icon = "gear-fill",
+                Items = new List<MainMenu.MenuItem>()
+                {
+                    new MainMenu.MenuItem()
+                    {
+                        Name = "Info",
+                        Icon = "info-circle-fill",
+                        Description = "Edit channel information",
+                        Content = InfoContent
+                    },
+                    new MainMenu.MenuItem()
+                    {
+                        Name = "Permissions",
+                        Icon = "person-fill",
+                        Description = "Manage channel permissions",
+                        Content = PermissionsContent
+                    }
+                }
+            }
+        };
 }

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Valour.Sdk.Client;
 using Valour.Sdk.Nodes;
 using Valour.Shared.Models;
@@ -12,12 +13,12 @@ public class UnreadService : ServiceBase
         "#a3333e",
         "#a39433"
     );
-    
+
     private readonly ValourClient _client;
-    
-    private readonly HashSet<long> _unreadPlanets = new();
-    private readonly Dictionary<long, HashSet<long>> _unreadPlanetChannels = new();
-    private readonly HashSet<long> _unreadDirectChannels = new();
+
+    private readonly ConcurrentDictionary<long, byte> _unreadPlanets = new();
+    private readonly ConcurrentDictionary<long, ConcurrentDictionary<long, byte>> _unreadPlanetChannels = new();
+    private readonly ConcurrentDictionary<long, byte> _unreadDirectChannels = new();
     
     public UnreadService(ValourClient client)
     {
@@ -33,11 +34,11 @@ public class UnreadService : ServiceBase
             LogError($"Failed to fetch unread planets: {result.Message}");
             return;
         }
-        
+
         _unreadPlanets.Clear();
         foreach (var planetId in result.Data)
         {
-            _unreadPlanets.Add(planetId);
+            _unreadPlanets[planetId] = 0;
         }
     }
 
@@ -50,36 +51,29 @@ public class UnreadService : ServiceBase
             return;
         }
 
-        if (_unreadPlanetChannels.TryGetValue(planetId, out var cache))
-        {
-            cache.Clear();
-        }
-        else
-        {
-            cache = new HashSet<long>();
-            _unreadPlanetChannels[planetId] = cache;
-        }
-        
+        var cache = _unreadPlanetChannels.GetOrAdd(planetId, _ => new ConcurrentDictionary<long, byte>());
+        cache.Clear();
+
         foreach (var channelId in result.Data)
         {
-            cache.Add(channelId);
+            cache[channelId] = 0;
         }
     }
 
     public async Task FetchUnreadDirectChannelsAsync()
     {
         var result = await _client.PrimaryNode.GetJsonAsync<long[]>($"api/unread/direct/channels");
-        
+
         if (!result.Success)
         {
             LogError($"Failed to fetch unread direct channels: {result.Message}");
             return;
         }
-        
+
         _unreadDirectChannels.Clear();
         foreach (var channelId in result.Data)
         {
-            _unreadDirectChannels.Add(channelId);
+            _unreadDirectChannels[channelId] = 0;
         }
     }
 
@@ -87,15 +81,15 @@ public class UnreadService : ServiceBase
     {
         if (planetId is null)
         {
-            _unreadDirectChannels.Remove(channelId);
+            _unreadDirectChannels.TryRemove(channelId, out _);
         }
         else if (_unreadPlanetChannels.TryGetValue(planetId.Value, out var cache))
         {
-            cache.Remove(channelId);
+            cache.TryRemove(channelId, out _);
         }
 
         Channel? channel = null;
-        
+
         // Get the channel
         if (planetId is not null && _client.Cache.Planets.TryGet(planetId.Value, out var planet))
         {
@@ -105,20 +99,20 @@ public class UnreadService : ServiceBase
         {
             _client.Cache.Channels.TryGet(channelId, out channel);
         }
-        
+
         // If we found the channel, mark it as read
         channel?.MarkUnread(false);
     }
-    
-    public bool IsPlanetUnread(long planetId) => _unreadPlanets.Contains(planetId);
-    
+
+    public bool IsPlanetUnread(long planetId) => _unreadPlanets.ContainsKey(planetId);
+
     public bool IsChannelUnread(long? planetId, long channelId)
     {
         if (planetId is null)
         {
-            return _unreadDirectChannels.Contains(channelId);
+            return _unreadDirectChannels.ContainsKey(channelId);
         }
-        
-        return _unreadPlanetChannels.TryGetValue(planetId.Value, out var cache) && cache.Contains(channelId);
+
+        return _unreadPlanetChannels.TryGetValue(planetId.Value, out var cache) && cache.ContainsKey(channelId);
     }
 }

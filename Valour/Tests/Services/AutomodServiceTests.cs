@@ -132,6 +132,128 @@ public class AutomodServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ScanMessage_BlacklistBlockMessage_PreventsPosting()
+    {
+        var regularMember = await RegisterAndJoinPlanetAsync();
+
+        var trigger = new AutomodTrigger
+        {
+            PlanetId = _planet.Id,
+            MemberAddedBy = _ownerMember.Id,
+            Name = "Blacklist block",
+            Type = AutomodTriggerType.Blacklist,
+            TriggerWords = "blocked-by-automod"
+        };
+
+        var action = new AutomodAction
+        {
+            PlanetId = _planet.Id,
+            MemberAddedBy = _ownerMember.Id,
+            ActionType = AutomodActionType.BlockMessage,
+            Message = string.Empty,
+            Strikes = 1,
+            UseGlobalStrikes = false
+        };
+
+        var createResult = await _automodService.CreateTriggerWithActionsAsync(trigger, [action]);
+        Assert.True(createResult.Success, createResult.Message);
+
+        var blockedMessage = new Message
+        {
+            PlanetId = _planet.Id,
+            ChannelId = _defaultChannel.Id,
+            AuthorUserId = regularMember.UserId,
+            AuthorMemberId = regularMember.Id,
+            Content = "this should be blocked-by-automod",
+            Fingerprint = Guid.NewGuid().ToString()
+        };
+
+        var postResult = await _messageService.PostMessageAsync(blockedMessage);
+
+        Assert.False(postResult.Success);
+        Assert.Contains("automod", postResult.Message, StringComparison.OrdinalIgnoreCase);
+
+        var persisted = await _db.Messages.AnyAsync(m => m.Id == blockedMessage.Id);
+        Assert.False(persisted);
+    }
+
+    [Fact]
+    public async Task ScanMessage_BlacklistBan_BansTargetMember()
+    {
+        var regularMember = await RegisterAndJoinPlanetAsync();
+
+        var trigger = new AutomodTrigger
+        {
+            PlanetId = _planet.Id,
+            MemberAddedBy = _ownerMember.Id,
+            Name = "Blacklist ban",
+            Type = AutomodTriggerType.Blacklist,
+            TriggerWords = "ban-trigger-word"
+        };
+
+        var action = new AutomodAction
+        {
+            PlanetId = _planet.Id,
+            MemberAddedBy = _ownerMember.Id,
+            ActionType = AutomodActionType.Ban,
+            Message = "Banned by automod test",
+            Strikes = 1,
+            UseGlobalStrikes = false
+        };
+
+        var createResult = await _automodService.CreateTriggerWithActionsAsync(trigger, [action]);
+        Assert.True(createResult.Success, createResult.Message);
+
+        var postResult = await _messageService.PostMessageAsync(new Message
+        {
+            PlanetId = _planet.Id,
+            ChannelId = _defaultChannel.Id,
+            AuthorUserId = regularMember.UserId,
+            AuthorMemberId = regularMember.Id,
+            Content = "triggering ban-trigger-word",
+            Fingerprint = Guid.NewGuid().ToString()
+        });
+
+        Assert.True(postResult.Success, postResult.Message);
+
+        var banExists = await _db.PlanetBans.AnyAsync(b => b.PlanetId == _planet.Id && b.TargetId == regularMember.UserId);
+        Assert.True(banExists);
+
+        var memberDeleted = await _db.PlanetMembers
+            .IgnoreQueryFilters()
+            .Where(m => m.Id == regularMember.Id)
+            .Select(m => m.IsDeleted)
+            .FirstAsync();
+        Assert.True(memberDeleted);
+    }
+
+    [Fact]
+    public async Task DeleteMessage_ImmediatelyAfterPost_Succeeds()
+    {
+        var regularMember = await RegisterAndJoinPlanetAsync();
+
+        var postResult = await _messageService.PostMessageAsync(new Message
+        {
+            PlanetId = _planet.Id,
+            ChannelId = _defaultChannel.Id,
+            AuthorUserId = regularMember.UserId,
+            AuthorMemberId = regularMember.Id,
+            Content = "delete-me-immediately",
+            Fingerprint = Guid.NewGuid().ToString()
+        });
+
+        Assert.True(postResult.Success, postResult.Message);
+        Assert.NotNull(postResult.Data);
+
+        var messageId = postResult.Data!.Id;
+        var deleteResult = await _messageService.DeleteMessageAsync(messageId);
+        Assert.True(deleteResult.Success, deleteResult.Message);
+
+        Assert.Null(PlanetMessageWorker.GetStagedMessage(messageId));
+        Assert.False(await _db.Messages.AnyAsync(m => m.Id == messageId));
+    }
+
+    [Fact]
     public async Task HandleMemberJoin_JoinRespond_PostsVictorResponse()
     {
         var trigger = new AutomodTrigger

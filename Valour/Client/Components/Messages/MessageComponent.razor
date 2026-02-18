@@ -35,7 +35,7 @@ else
                     }
                 </style>
             }
-            <div style="background-image: url(@_avatarUrl), url(@_fallbackAvatarUrl)" alt="@_name's profile picture" loading="lazy" class="author-avatar author-avatar-@_user.Id" @onerror="OnAvatarError"></div>
+            <div @onclick="OnClickName" style="background-image: url(@_avatarUrl), url(@_fallbackAvatarUrl)" alt="@_name's profile picture" loading="lazy" class="author-avatar author-avatar-@_user.Id" @onerror="OnAvatarError"></div>
         }
         <div class="time-container">
             <span class="time" title="@_timeTitle">
@@ -144,7 +144,7 @@ else
                 var newReaction = _newReactions != null && _newReactions.Contains(reaction.emoji) ? "new" : "";
                 
                 <div class="reaction @added @newReaction" @onclick="() => OnReactionClick(reaction.emoji)">
-                    <img class="emoji" src="@EmojiSourceProvider.GetSrcUrlFromNative(reaction.emoji)" alt="@reaction.emoji"/>
+                    <img class="emoji" src="@GetReactionSrc(reaction.emoji)" alt="@GetReactionAlt(reaction.emoji)" title="@GetReactionAlt(reaction.emoji)"/>
                     <span class="reaction-count">@reaction.count</span>
                 </div>
             }
@@ -274,6 +274,12 @@ else
     private HashSet<string> _newReactions;
     private List<(string emoji, int count)> _reactionsToRender = new();
     private bool _showAllReactions = false;
+
+    private string GetReactionSrc(string emoji) =>
+        EmojiSourceProvider.GetSrcUrlFromReaction(emoji, _message?.PlanetId);
+
+    private string GetReactionAlt(string emoji) =>
+        EmojiSourceProvider.GetAltFromReaction(emoji);
     
     
     private void CalculateReactions()
@@ -806,7 +812,7 @@ else
     {
         if (_author is not null)
         {
-            _author.GetFailedAvatar();
+            return _author.GetFailedAvatar();
         }
         
         return ISharedUser.DefaultAvatar;

@@ -1,0 +1,80 @@
+@inject StaffService StaffService
+
+<div class="verify-user-container">
+    <h5>Send Mass Email</h5>
+    <p class="verify-user-help">
+        Send an email to all verified users. This action cannot be undone.
+    </p>
+
+    <div style="display: flex; flex-direction: column; gap: 0.5em;">
+        <input class="v-input"
+               placeholder="Subject"
+               @bind-value="_subject" />
+        <textarea class="v-input"
+                  placeholder="HTML body content"
+                  rows="8"
+                  @bind="_htmlBody"></textarea>
+        <button class="v-btn primary"
+                disabled="@_isSubmitting"
+                @onclick="OnSendClicked">
+            Send to All Verified Users
+        </button>
+    </div>
+
+    @if (_result is not null)
+    {
+        <span class="@(_result.Success ? "text-info" : "text-danger")" style="margin-top: 0.5em; display: block;">@_result.Message</span>
+    }
+</div>
+
+@code {
+    private string _subject = string.Empty;
+    private string _htmlBody = string.Empty;
+    private ITaskResult _result;
+    private bool _isSubmitting;
+
+    private void OnSendClicked()
+    {
+        if (string.IsNullOrWhiteSpace(_subject) || string.IsNullOrWhiteSpace(_htmlBody))
+        {
+            _result = TaskResult.FromFailure("Subject and body are required.");
+            return;
+        }
+
+        var cData = new ConfirmModalComponent.ModalParams(
+            "Mass Email",
+            "Are you sure you want to send this email to ALL verified users?",
+            "Yes, send it",
+            "Cancel",
+            async () => await SendEmailAsync(),
+            () => Task.CompletedTask
+        );
+
+        ModalRoot.Instance.OpenModal<ConfirmModalComponent>(cData);
+    }
+
+    private async Task SendEmailAsync()
+    {
+        _isSubmitting = true;
+        StateHasChanged();
+
+        var toastData = new ProgressToastData<TaskResult>()
+        {
+            Title = "Mass Email",
+            Message = "Sending emails...",
+            SuccessMessage = "Mass email sent!",
+            ProgressTask = StaffService.SendMassEmailAsync(_subject.Trim(), _htmlBody.Trim())
+        };
+
+        _result = await ToastContainer.Instance.WaitToastWithTaskResult(toastData);
+
+        if (_result.Success)
+        {
+            _subject = string.Empty;
+            _htmlBody = string.Empty;
+        }
+
+        _isSubmitting = false;
+        StateHasChanged();
+    }
+}

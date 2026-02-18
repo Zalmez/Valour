@@ -291,10 +291,12 @@
         {
             User newUser = new(Client);
             User.CopyAllTo(newUser);
+            newUser.HasCustomAvatar = true;
+            newUser.HasAnimatedAvatar = contentType == "image/gif";
             newUser.Version++;
             Client.Cache.Users.Put(newUser);
 
-            _pfpUrl = User.GetAvatar(AvatarFormat.WebpAnimated256);
+            _pfpUrl = newUser.GetAvatar(AvatarFormat.WebpAnimated256);
         }
 
         StateHasChanged();

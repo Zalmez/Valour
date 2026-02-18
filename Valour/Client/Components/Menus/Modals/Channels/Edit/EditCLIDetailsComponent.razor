@@ -48,17 +48,34 @@
     {
         if (_nameValue != Channel.Name || _descValue != Channel.Description)
         {
+            // Save old values so we can restore if the update fails.
+            // We must not mutate the cached model before the server confirms,
+            // otherwise the SignalR update won't detect changes and the
+            // sidebar won't refresh.
+            var oldName = Channel.Name;
+            var oldDesc = Channel.Description;
+
             Channel.Name = _nameValue;
             Channel.Description = _descValue;
 
             var result = await Channel.UpdateAsync();
             if (!result.Success)
             {
+                // Restore old values on failure
+                Channel.Name = oldName;
+                Channel.Description = oldDesc;
                 _errorSpan = "Failed to save changes. Try again?";
             }
             else
             {
                 _nameSpan = "Changes saved successfully.";
+
+                // We mutated the cached model before UpdateAsync (required because
+                // it sends `this`), so the SignalR notification may arrive during
+                // the await, find no property diffs, and skip firing Updated events.
+                // Explicitly fire the event to ensure the sidebar refreshes.
+                Channel.InvokeUpdatedEvent(
+                    new ModelUpdatedEvent<Channel>(Channel, ModelChange<Channel>.Empty));
             }
         }
 

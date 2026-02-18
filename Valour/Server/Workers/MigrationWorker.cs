@@ -94,6 +94,29 @@ public class MigrationWorker : IHostedService
             }
         }
         
+        // Create profiles for bots that are missing them
+        var botsWithoutProfiles = await db.Users
+            .Where(x => x.Bot && !db.UserProfiles.Any(p => p.Id == x.Id))
+            .ToListAsync();
+
+        foreach (var bot in botsWithoutProfiles)
+        {
+            db.UserProfiles.Add(new Valour.Database.UserProfile
+            {
+                Id = bot.Id,
+                Headline = "Bot Account",
+                Bio = $"I'm {bot.Name}, a bot on Valour!",
+                BorderColor = "#fff",
+                AnimatedBorder = false,
+            });
+        }
+
+        if (botsWithoutProfiles.Count > 0)
+        {
+            await db.SaveChangesAsync();
+            _logger.LogInformation("Created profiles for {Count} bots", botsWithoutProfiles.Count);
+        }
+
         // await permService.BulkUpdateMemberRoleHashesAsync();
         _logger.LogInformation("Migration Worker has finished");
         

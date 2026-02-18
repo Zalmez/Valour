@@ -1,0 +1,169 @@
+name: Windows Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Valour/Client.Maui/**'
+      - 'Valour/Client/**'
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version_changed: ${{ steps.check.outputs.changed }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Check if release already exists
+      id: check
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        CURRENT=$(grep -oP '(?<=<ApplicationDisplayVersion>)[^<]+' Valour/Client.Maui/Valour.Client.Maui.csproj)
+        echo "version=$CURRENT" >> $GITHUB_OUTPUT
+
+        if gh release view "v$CURRENT" > /dev/null 2>&1; then
+          echo "Release v$CURRENT already exists, skipping build"
+          echo "changed=false" >> $GITHUB_OUTPUT
+        else
+          echo "No release for v$CURRENT, will build"
+          echo "changed=true" >> $GITHUB_OUTPUT
+        fi
+
+  build-windows:
+    needs: check-version
+    if: needs.check-version.outputs.version_changed == 'true'
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Install MAUI workloads
+      run: dotnet workload install maui-windows maui-android
+
+    - name: Get short SHA
+      id: short-sha
+      shell: bash
+      run: echo "short_sha=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+    - name: Replace asset version hashes
+      uses: mingjun97/file-regex-replace@v1
+      with:
+        regex: '\$\(SHORTHASH\)'
+        replacement: '${{ steps.short-sha.outputs.short_sha }}'
+        flags: "g"
+        include: '\.(js|cs|razor|cshtml|html)$'
+        exclude: '.^'
+        encoding: 'utf8'
+        path: '.'
+
+    - name: Restore dependencies
+      run: |
+        dotnet restore Valour/BuildTools/CssBundler/CssBundler.csproj
+        dotnet restore Valour/Client/Valour.Client.csproj
+
+    - name: Build Client (generates CSS bundle)
+      run: dotnet build Valour/Client/Valour.Client.csproj -c Release --no-restore
+
+    - name: Publish Windows App
+      run: >
+        dotnet publish Valour/Client.Maui/Valour.Client.Maui.csproj
+        -f net10.0-windows10.0.19041.0
+        -c Release
+        -o ./artifacts/windows
+        -p:RuntimeIdentifierOverride=win10-x64
+        -p:SelfContained=true
+        -p:WindowsAppSDKSelfContained=true
+
+    - name: Verify published assets
+      shell: pwsh
+      run: |
+        if (!(Test-Path "./artifacts/windows/Valour.exe")) {
+          throw "Expected ./artifacts/windows/Valour.exe was not produced."
+        }
+        if (!(Test-Path "./artifacts/windows/wwwroot/_content/Valour.Client/css/bundled.min.css")) {
+          throw "Expected Blazor static assets were not found in publish output."
+        }
+
+    - name: Generate launcher icon
+      shell: pwsh
+      run: |
+        Add-Type -AssemblyName System.Drawing
+        $pngPath = Join-Path $PWD "Valour/Client.Maui/Resources/AppIcon/appicon.png"
+        $icoPath = Join-Path $PWD "Valour/BuildTools/WindowsLauncher/valour-launcher.ico"
+
+        $bitmap = [System.Drawing.Bitmap]::FromFile($pngPath)
+        $icon = [System.Drawing.Icon]::FromHandle($bitmap.GetHicon())
+        $stream = [System.IO.File]::Create($icoPath)
+        $icon.Save($stream)
+        $stream.Dispose()
+        $icon.Dispose()
+        $bitmap.Dispose()
+
+        if (!(Test-Path $icoPath)) {
+          throw "Launcher icon was not created."
+        }
+
+    - name: Create payload archive
+      shell: pwsh
+      run: Compress-Archive -Path ./artifacts/windows/* -DestinationPath ./artifacts/valour-payload.zip -Force
+
+    - name: Publish launcher
+      run: >
+        dotnet publish Valour/BuildTools/WindowsLauncher/Valour.WindowsLauncher.csproj
+        -c Release
+        -r win-x64
+        -o ./artifacts/launcher
+
+    - name: Build release executable
+      shell: pwsh
+      run: |
+        $launcherPath = Join-Path $PWD "artifacts/launcher/Valour.exe"
+        $payloadPath = Join-Path $PWD "artifacts/valour-payload.zip"
+        $outputPath = Join-Path $PWD "artifacts/Valour.exe"
+
+        Copy-Item $launcherPath $outputPath -Force
+
+        $payloadLength = (Get-Item $payloadPath).Length
+        $lengthBytes = [System.BitConverter]::GetBytes([Int64]$payloadLength)
+        $markerBytes = [System.Text.Encoding]::ASCII.GetBytes("VALOURP1")
+
+        $outStream = [System.IO.File]::Open($outputPath, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+        $payloadStream = [System.IO.File]::OpenRead($payloadPath)
+        $payloadStream.CopyTo($outStream)
+        $outStream.Write($lengthBytes, 0, $lengthBytes.Length)
+        $outStream.Write($markerBytes, 0, $markerBytes.Length)
+        $payloadStream.Dispose()
+        $outStream.Dispose()
+
+        if (!(Test-Path $outputPath)) {
+          throw "Final release executable was not created."
+        }
+
+    # TODO: Enable once SSL.com cert is validated and eSigner is enrolled
+    # - name: Sign executable
+    #   uses: sslcom/esigner-codesign@develop
+    #   with:
+    #     command: sign
+    #     username: ${{ secrets.ES_USERNAME }}
+    #     password: ${{ secrets.ES_PASSWORD }}
+    #     credential_id: ${{ secrets.ES_CREDENTIAL_ID }}
+    #     totp_secret: ${{ secrets.ES_TOTP_SECRET }}
+    #     file_path: ./artifacts/Valour.exe
+
+    - name: Create or update GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ needs.check-version.outputs.version }}
+        name: Valour v${{ needs.check-version.outputs.version }}
+        files: ./artifacts/Valour.exe
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
