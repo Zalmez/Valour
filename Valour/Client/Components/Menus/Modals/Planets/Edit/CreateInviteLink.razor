@@ -1,74 +1,47 @@
-﻿@inject HttpClient Http
-@inject ValourClient Client
-@inject NavigationManager NavManager
+﻿@inject ValourClient Client
 
-<br />
-<div style="margin-bottom: 12%;margin-top:25px;">
-    <center><h3>Create Invite</h3></center>
-    <center><p>How long will this invite last, in hours. (put 0 to make invite permanent)</p></center>
-    <center><input class="form-control" type="number" @bind-value="@hoursValue" style="width:15%;" /></center>
-
-    <center>
-        @if (!Failed) {
-            <p style="margin-top:10px;">Invite Link: <a href="@nameSpan" class="EnableRightCLick">@nameSpan</a></p>
-        }
-        else {
-            <p style="margin-top:10px;color:red;">@nameSpan</p>
-        }
-        <br>
-
-        <button class="btn btn-primary mt-2" @onclick="OnSaveChanges">Create Invite</button>
-    </center>
+<div class="create-invite">
+    <h4>Create Invite</h4>
+    <div class="create-invite-row">
+        <div class="form-group">
+            <label>Expires in (hours)</label>
+            <input class="v-input" type="number" min="0" @bind-value="@_hoursValue" placeholder="0 = never" />
+            <p class="helper-text">Set to 0 for a permanent invite</p>
+        </div>
+        <button class="v-btn primary create-btn" @onclick="OnCreateInvite">Create Invite</button>
+    </div>
+    <ResultLabel Result="@_result" />
 </div>
 
 @code {
     [Parameter]
     public Planet Planet { get; set; }
 
-    public int hoursValue;
+    private int _hoursValue;
+    private ITaskResult _result;
 
-    public string nameSpan;
-
-    public bool Failed = false;
-
-    protected override Task OnInitializedAsync()
-    {
-        hoursValue = 0;
-
-        StateHasChanged();
-        return Task.CompletedTask;
-    }
-
-    public async Task OnSaveChanges()
+    public async Task OnCreateInvite()
     {
         var invite = new PlanetInvite(Client)
         {
             PlanetId = Planet.Id,
             IssuerId = Client.Me.Id,
             TimeCreated = DateTime.UtcNow,
-            TimeExpires = DateTime.UtcNow.Add(TimeSpan.FromHours(hoursValue)) // TODO: Make this a date picker
+            TimeExpires = _hoursValue > 0
+                ? DateTime.UtcNow.Add(TimeSpan.FromHours(_hoursValue))
+                : null
         };
-
-        if (hoursValue == 0)
-        {
-            invite.TimeExpires = null;
-        }
 
         var response = await Planet.Node.PostAsyncWithResponse<PlanetInvite>($"api/invites", invite);
 
         if (!response.Success)
         {
-            nameSpan = response.Message;
-            Failed = true;
-            StateHasChanged();
-            return;
+            _result = new TaskResult(false, response.Message);
         }
-
-        var link = NavManager.BaseUri.TrimEnd('/') + "/I/" + response.Data.Id;
-
-        nameSpan = link;
-        
-        Console.WriteLine(link);
+        else
+        {
+            _result = new TaskResult(true, "Invite created successfully!");
+        }
 
         StateHasChanged();
     }

@@ -1,8 +1,33 @@
-﻿button {
-    width: 116.4px;
-    height: 40.8px;
-    background-color: var(--main-5);
-    border: none;
-    border-radius: 5px;
-    font-size: 14px;
+.create-invite {
+    margin-top: 16px;
+    padding: 14px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 8px;
+}
+
+.create-invite h4 {
+    margin: 0 0 10px 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.create-invite-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.create-invite-row .form-group {
+    flex: 1;
+    min-width: 150px;
+}
+
+.create-invite-row .v-input {
+    width: 100%;
+}
+
+.create-btn {
+    margin-top: 22px;
+    white-space: nowrap;
 }
