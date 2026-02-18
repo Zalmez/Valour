@@ -3,7 +3,9 @@ using Projects;
 var builder = DistributedApplication.CreateBuilder(args);
 
 var postgres = builder.AddPostgres("valourgres")
-	.WithDataVolume("valour-postgres-data").WithPgAdmin();
+	.WithImageTag("16.12") // pin version
+	.WithDataVolume("valour-postgres-data")
+	.WithPgAdmin();
 
 var valourDb = postgres.AddDatabase("valourdb");
 
