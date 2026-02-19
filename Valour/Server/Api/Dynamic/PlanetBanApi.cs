@@ -94,7 +94,7 @@ public class PlanetBanApi
         if (old is null)
             return ValourResult.NotFound<PlanetBan>();
 
-        var result = await banService.PutAsync(ban);
+        var result = await banService.PutAsync(ban, member.UserId);
         if (!result.Success)
             return ValourResult.Problem(result.Message);
 

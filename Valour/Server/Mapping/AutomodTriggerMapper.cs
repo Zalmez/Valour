@@ -13,7 +13,8 @@ public static class AutomodTriggerMapper
             MemberAddedBy = trigger.MemberAddedBy,
             Type = trigger.Type,
             Name = trigger.Name,
-            TriggerWords = trigger.TriggerWords
+            TriggerWords = trigger.TriggerWords,
+            RunForEveryone = trigger.RunForEveryone
         };
     }
 
@@ -28,7 +29,8 @@ public static class AutomodTriggerMapper
             MemberAddedBy = trigger.MemberAddedBy,
             Type = trigger.Type,
             Name = trigger.Name,
-            TriggerWords = trigger.TriggerWords
+            TriggerWords = trigger.TriggerWords,
+            RunForEveryone = trigger.RunForEveryone
         };
     }
 }

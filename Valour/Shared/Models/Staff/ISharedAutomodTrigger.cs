@@ -35,4 +35,9 @@ public interface ISharedAutomodTrigger
     /// For commands, this will be the command name (no need to include the slash)
     /// </summary>
     public string? TriggerWords { get; set; }
+
+    /// <summary>
+    /// If true, this trigger applies even to members who have bypass automod permission.
+    /// </summary>
+    public bool RunForEveryone { get; set; }
 }

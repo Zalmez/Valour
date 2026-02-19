@@ -10,4 +10,5 @@ public class AutomodTrigger : ServerModel<Guid>, ISharedAutomodTrigger, ISharedP
     public AutomodTriggerType Type { get; set; }
     public string Name { get; set; }
     public string? TriggerWords { get; set; }
+    public bool RunForEveryone { get; set; }
 }

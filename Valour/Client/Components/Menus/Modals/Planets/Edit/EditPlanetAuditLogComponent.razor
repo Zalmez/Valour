@@ -1,0 +1,99 @@
+@inject ValourClient Client
+
+<h3>Audit Log <i class="bi bi-journal-bookmark-fill"></i></h3>
+<p class="subtitle">REVIEW MODERATION ACTIONS</p>
+
+<QueryTable
+    @ref="_table"
+    TableMinWidth="1200"
+    Columns="@_columns"
+    Engine="@_engine"
+    ShowSearch="true"
+    Infinite="true"
+    SearchPlaceholder="Search action, actor, target, details..." />
+
+@code {
+    [Parameter]
+    public Planet Planet { get; set; }
+
+    private QueryTable<ModerationAuditLog> _table;
+    private List<ColumnDefinition<ModerationAuditLog>> _columns;
+    private ModelQueryEngine<ModerationAuditLog> _engine;
+
+    protected override void OnInitialized()
+    {
+        Planet ??= WindowService.FocusedPlanet;
+        _engine = Client.AutomodService.GetAuditLogQueryEngine(Planet);
+
+        _columns = new()
+        {
+            new()
+            {
+                Name = "When",
+                SortField = "time",
+                Sortable = true,
+                RenderFragment = row => @<span>@row.Row.TimeCreated.ToLocalTime().ToString("g")</span>,
+                Width = "170px"
+            },
+            new()
+            {
+                Name = "Action",
+                SortField = "action",
+                Sortable = true,
+                RenderFragment = row => @<span>@GetActionLabel(row.Row.ActionType)</span>,
+                Width = "170px"
+            },
+            new()
+            {
+                Name = "Source",
+                SortField = "source",
+                Sortable = true,
+                RenderFragment = row => @<span>@GetSourceLabel(row.Row.Source)</span>,
+                Width = "110px"
+            },
+            new()
+            {
+                Name = "Actor",
+                SortField = "actor",
+                Sortable = true,
+                RenderFragment = row => row.Row.ActorUserId.HasValue
+                    ? @<UserInfoComponent UserId="@row.Row.ActorUserId.Value" />
+                    : @<span>System</span>,
+                Width = "250px"
+            },
+            new()
+            {
+                Name = "Target",
+                SortField = "target",
+                Sortable = true,
+                RenderFragment = row => row.Row.TargetUserId.HasValue
+                    ? @<UserInfoComponent UserId="@row.Row.TargetUserId.Value" />
+                    : @<span>-</span>,
+                Width = "250px"
+            },
+            new()
+            {
+                Name = "Details",
+                RenderFragment = row => @<span>@(string.IsNullOrWhiteSpace(row.Row.Details) ? "-" : row.Row.Details)</span>
+            }
+        };
+    }
+
+    private static string GetSourceLabel(ModerationActionSource source) =>
+        source switch
+        {
+            ModerationActionSource.Automod => "Automod",
+            _ => "Manual"
+        };
+
+    private static string GetActionLabel(ModerationActionType action) =>
+        action switch
+        {
+            ModerationActionType.AddRole => "Add Role",
+            ModerationActionType.RemoveRole => "Remove Role",
+            ModerationActionType.DeleteMessage => "Delete Message",
+            ModerationActionType.BlockMessage => "Block Message",
+            ModerationActionType.BanUpdated => "Update Ban",
+            _ => action.ToString()
+        };
+}

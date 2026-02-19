@@ -1,6 +1,7 @@
 using Valour.Server.Database;
 using Valour.Shared;
 using Valour.Shared.Models;
+using Valour.Shared.Models.Staff;
 using Valour.Shared.Queries;
 
 namespace Valour.Server.Services;
@@ -11,6 +12,7 @@ public class PlanetBanService
     private readonly CoreHubService _coreHub;
     private readonly TokenService _tokenService;
     private readonly PlanetMemberService _memberService;
+    private readonly ModerationAuditService _moderationAuditService;
     private readonly ILogger<PlanetBanService> _logger;
 
     public PlanetBanService(
@@ -18,12 +20,14 @@ public class PlanetBanService
         CoreHubService coreHub,
         TokenService tokenService,
         PlanetMemberService memberService,
+        ModerationAuditService moderationAuditService,
         ILogger<PlanetBanService> logger)
     {
         _db = db;
         _coreHub = coreHub;
         _tokenService = tokenService;
         _memberService = memberService;
+        _moderationAuditService = moderationAuditService;
         _logger = logger;
     }
     
@@ -36,7 +40,11 @@ public class PlanetBanService
     /// <summary>
     /// Creates the given planetban
     /// </summary>
-    public async Task<TaskResult<PlanetBan>> CreateAsync(PlanetBan ban, PlanetMember member)
+    public async Task<TaskResult<PlanetBan>> CreateAsync(
+        PlanetBan ban,
+        PlanetMember member,
+        ModerationActionSource source = ModerationActionSource.Manual,
+        Guid? triggerId = null)
     {
         if (ban.IssuerId != member.UserId)
             return new(false, "IssuerId should match user Id.");
@@ -92,10 +100,25 @@ public class PlanetBanService
         _coreHub.NotifyPlanetItemChange(ban);
         _coreHub.NotifyPlanetItemDelete(target);
 
+        var actorUserId = source == ModerationActionSource.Automod
+            ? ISharedUser.VictorUserId
+            : member.UserId;
+
+        await _moderationAuditService.LogAsync(
+            ban.PlanetId,
+            source,
+            ModerationActionType.Ban,
+            actorUserId: actorUserId,
+            targetUserId: ban.TargetId,
+            targetMemberId: target?.Id,
+            triggerId: triggerId,
+            details: ban.Reason,
+            timeCreated: ban.TimeCreated);
+
         return new(true, "Success", ban);
     }
 
-    public async Task<TaskResult<PlanetBan>> PutAsync(PlanetBan updatedban)
+    public async Task<TaskResult<PlanetBan>> PutAsync(PlanetBan updatedban, long? actorUserId = null)
     {
         var old = await _db.PlanetBans.FindAsync(updatedban.Id);
         if (old is null) return new(false, $"PlanetBan not found");
@@ -125,6 +148,14 @@ public class PlanetBanService
 
         // Notify of changes
         _coreHub.NotifyPlanetItemChange(updatedban);
+
+        await _moderationAuditService.LogAsync(
+            updatedban.PlanetId,
+            ModerationActionSource.Manual,
+            ModerationActionType.BanUpdated,
+            actorUserId: actorUserId ?? updatedban.IssuerId,
+            targetUserId: updatedban.TargetId,
+            details: updatedban.Reason);
 
         return new(true, "Success", updatedban);
     }
@@ -213,6 +244,14 @@ public class PlanetBanService
 
         // Notify of changes
         _coreHub.NotifyPlanetItemDelete(ban);
+
+        await _moderationAuditService.LogAsync(
+            ban.PlanetId,
+            ModerationActionSource.Manual,
+            ModerationActionType.Unban,
+            actorUserId: member.UserId,
+            targetUserId: ban.TargetId,
+            details: ban.Reason);
 
         return new(true, "Success");
     }

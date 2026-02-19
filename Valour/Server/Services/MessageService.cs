@@ -261,11 +261,18 @@ public class MessageService
         }
         
         var memberModel = member?.ToModel();
+        AutomodService.MessageScanResult? scanResult = null;
 
         try
         {
-            if (!await _automodService.ScanMessageAsync(message, memberModel))
+            scanResult = await _automodService.ScanMessageAsync(message, memberModel);
+            if (!scanResult.AllowMessage)
+            {
+                if (scanResult.ActionsToRun.Count > 0 && memberModel is not null)
+                    await _automodService.RunMessageActionsAsync(scanResult.ActionsToRun, memberModel, message);
+
                 return TaskResult<Message>.FromFailure("Message blocked by automod.");
+            }
         }
         catch (Exception e)
         {
@@ -323,6 +330,9 @@ public class MessageService
         {
             _coreHubService.NotifyChannelStateUpdate(channel.PlanetId.Value, channel.Id, message.TimeSent);
         }
+
+        if (scanResult?.ActionsToRun.Count > 0 && memberModel is not null)
+            await _automodService.RunMessageActionsAsync(scanResult.ActionsToRun, memberModel, message);
 
         if (notification is not null)
         {

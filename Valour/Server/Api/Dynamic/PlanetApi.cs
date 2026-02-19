@@ -457,6 +457,28 @@ public class PlanetApi
         return Results.Json(result);
     }
 
+    [ValourRoute(HttpVerbs.Post, "api/planets/{planetId}/moderation/audit/query")]
+    [UserRequired(UserPermissionsEnum.PlanetManagement)]
+    public static async Task<IResult> QueryModerationAuditAsync(
+        [FromBody] QueryRequest? queryRequest,
+        long planetId,
+        PlanetMemberService memberService,
+        ModerationAuditService moderationAuditService)
+    {
+        if (queryRequest is null)
+            return ValourResult.BadRequest("Include query in body.");
+
+        var member = await memberService.GetCurrentAsync(planetId);
+        if (member is null)
+            return ValourResult.NotPlanetMember();
+
+        if (!await memberService.HasPermissionAsync(member, PlanetPermissions.Manage))
+            return ValourResult.LacksPermission(PlanetPermissions.Manage);
+
+        var result = await moderationAuditService.QueryPlanetLogsAsync(planetId, queryRequest);
+        return Results.Json(result);
+    }
+
     [ValourRoute(HttpVerbs.Get, "api/planets/{id}/info")]
     public static async Task<IResult> GetPlanetInfoAsync(
         long id,

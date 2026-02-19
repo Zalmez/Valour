@@ -155,6 +155,11 @@ public partial class ValourDb : DbContext
     public DbSet<AutomodLog> AutomodLogs { get; set; }
 
     /// <summary>
+    /// Table for moderation audit logs
+    /// </summary>
+    public DbSet<ModerationAuditLog> ModerationAuditLogs { get; set; }
+
+    /// <summary>
     /// Table for planet invites
     /// </summary>
     public DbSet<StatObject> Stats { get; set; }
@@ -287,6 +292,7 @@ public partial class ValourDb : DbContext
         AutomodTrigger.SetupDbModel(modelBuilder);
         AutomodAction.SetupDbModel(modelBuilder);
         AutomodLog.SetupDbModel(modelBuilder);
+        ModerationAuditLog.SetupDbModel(modelBuilder);
 
         Valour.Database.NodeStats.SetupDbModel(modelBuilder);
         OldPlanetRoleMember.SetupDbModel(modelBuilder);

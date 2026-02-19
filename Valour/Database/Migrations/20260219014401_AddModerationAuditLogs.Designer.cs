@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Valour.Database.Context;
@@ -12,9 +13,11 @@ using Valour.Database.Context;
 namespace Valour.Database.Migrations
 {
     [DbContext(typeof(ValourDb))]
-    partial class ValourDbModelSnapshot : ModelSnapshot
+    [Migration("20260219014401_AddModerationAuditLogs")]
+    partial class AddModerationAuditLogs
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -181,10 +184,6 @@ namespace Valour.Database.Migrations
                     b.Property<long>("PlanetId")
                         .HasColumnType("bigint")
                         .HasColumnName("planet_id");
-
-                    b.Property<bool>("RunForEveryone")
-                        .HasColumnType("boolean")
-                        .HasColumnName("run_for_everyone");
 
                     b.Property<string>("TriggerWords")
                         .HasColumnType("text")

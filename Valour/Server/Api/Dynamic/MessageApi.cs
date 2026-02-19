@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Valour.Server.Workers;
 using Valour.Shared.Authorization;
 using Valour.Shared.Models;
+using Valour.Shared.Models.Staff;
 using Valour.Shared.Models.MessageReactions;
 using Valour.Shared.Utilities;
 
@@ -198,7 +199,8 @@ public class MessageApi
         MessageService messageService,
         ChannelService channelService,
         TokenService tokenService,
-        PlanetMemberService memberService)
+        PlanetMemberService memberService,
+        ModerationAuditService moderationAuditService)
     {
         var token = await tokenService.GetCurrentTokenAsync();
         var message = await messageService.GetMessageNoReplyAsync(id);
@@ -222,7 +224,8 @@ public class MessageApi
         // Determine permissions
 
         // First off, if the user is the sender they can always delete
-        if (message.AuthorUserId != token.UserId)
+        var deletedByNonAuthor = message.AuthorUserId != token.UserId;
+        if (deletedByNonAuthor)
         {
             if (message.PlanetId is null)
                 return ValourResult.Forbid("Only the sender can delete these messages");
@@ -244,6 +247,19 @@ public class MessageApi
         if (!result.Success)
         {
             return ValourResult.BadRequest(result.Message);
+        }
+
+        if (deletedByNonAuthor && message.PlanetId is not null)
+        {
+            await moderationAuditService.LogAsync(
+                message.PlanetId.Value,
+                ModerationActionSource.Manual,
+                ModerationActionType.DeleteMessage,
+                actorUserId: token.UserId,
+                targetUserId: message.AuthorUserId,
+                targetMemberId: message.AuthorMemberId,
+                messageId: message.Id,
+                details: "Deleted another user's message.");
         }
         
         return Results.Ok();

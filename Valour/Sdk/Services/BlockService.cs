@@ -2,11 +2,14 @@ using Valour.Sdk.Client;
 using Valour.Sdk.Models;
 using Valour.Shared;
 using Valour.Shared.Models;
+using Valour.Shared.Utilities;
 
 namespace Valour.Sdk.Services;
 
 public class BlockService : ServiceBase
 {
+    public HybridEvent BlocksChanged;
+
     private readonly ValourClient _client;
     private readonly object _lock = new();
 
@@ -50,6 +53,7 @@ public class BlockService : ServiceBase
         }
 
         Log($"Loaded {Blocks.Count} blocks.");
+        BlocksChanged?.Invoke();
     }
 
     /// <summary>
@@ -81,6 +85,8 @@ public class BlockService : ServiceBase
                 Blocks.Add(result.Data);
                 _blockedUserIds.Add(targetUserId);
             }
+
+            BlocksChanged?.Invoke();
         }
 
         return result;
@@ -99,6 +105,8 @@ public class BlockService : ServiceBase
                 Blocks.RemoveAll(x => x.BlockedUserId == targetUserId);
                 _blockedUserIds.Remove(targetUserId);
             }
+
+            BlocksChanged?.Invoke();
         }
 
         return result;

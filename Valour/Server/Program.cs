@@ -358,6 +358,7 @@ public partial class Program
         services.AddScoped<PlanetService>();
         services.AddScoped<TenorFavoriteService>();
         services.AddScoped<AutomodService>();
+        services.AddScoped<ModerationAuditService>();
         services.AddScoped<BotService>();
         services.AddScoped<TokenService>();
         services.AddScoped<UserFriendService>();
