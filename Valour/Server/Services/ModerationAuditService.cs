@@ -94,6 +94,8 @@ public class ModerationAuditService
 
         var sortField = request.Options?.Sort?.Field;
         var sortDesc = request.Options?.Sort?.Descending ?? true;
+        if (string.IsNullOrWhiteSpace(sortField))
+            sortDesc = true;
 
         query = sortField switch
         {
