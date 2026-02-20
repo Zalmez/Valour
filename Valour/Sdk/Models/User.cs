@@ -167,6 +167,11 @@ public class User : ClientModel<User, long>, ISharedUser, IMessageAuthor
     
     public string GetFailedAvatar() =>
         ISharedUser.GetFailedAvatar(this);
+    
+    public bool HasStargazer => 
+        SubscriptionType == UserSubscriptionTypes.Stargazer.Name ||
+        SubscriptionType == UserSubscriptionTypes.StargazerPlus.Name ||
+        SubscriptionType == UserSubscriptionTypes.StargazerPro.Name;
 
     public override User AddToCache(ModelInsertFlags flags = ModelInsertFlags.None)
     {

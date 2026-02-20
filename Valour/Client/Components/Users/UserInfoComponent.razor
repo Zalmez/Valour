@@ -43,7 +43,7 @@
                 <div class="name-tag">
                     <p class="username" style="color: @_roleColor" @onclick="@ShowProfileAsync">@_name</p>
                     <div class="dot-badge-holder">
-                        @if (User.SubscriptionType == UserSubscriptionTypes.Stargazer.Name)
+                        @if (User.HasStargazer)
                         {
                             <TooltipTrigger>
                                 <ChildContent>
