@@ -36,7 +36,24 @@
             /* Theme asset variables */
             @foreach (var asset in CurrentTheme.Assets ?? Enumerable.Empty<ThemeAssetInfo>())
             {
-                <text>--theme-asset-@asset.Name: url(@asset.Url);</text>
+                @if (asset.AssetType != "font")
+                {
+                    <text>--theme-asset-@asset.Name: url(@asset.Url);</text>
+                }
+            }
+        }
+
+        /* Theme font assets */
+        @foreach (var asset in CurrentTheme.Assets ?? Enumerable.Empty<ThemeAssetInfo>())
+        {
+            @if (asset.AssetType == "font")
+            {
+                <text>
+                @@font-face {
+                    font-family: "theme-font-@asset.Name";
+                    src: url("@asset.Url") format("@GetFontFormat(asset.Url)");
+                }
+                </text>
             }
         }
 
@@ -66,6 +83,22 @@
             await LocalStorage.RemoveAsync("ACTIVE_THEME");
         StateHasChanged();
         OnThemeChanged?.Invoke();
+    }
+
+    private static string GetFontFormat(string url)
+    {
+        if (string.IsNullOrEmpty(url))
+            return "woff2";
+
+        var ext = url.Split('.').LastOrDefault()?.ToLowerInvariant();
+        return ext switch
+        {
+            "woff2" => "woff2",
+            "woff" => "woff",
+            "ttf" => "truetype",
+            "otf" => "opentype",
+            _ => "woff2",
+        };
     }
 
     private string GetSanitizedCustomCss()

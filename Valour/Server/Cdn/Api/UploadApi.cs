@@ -272,6 +272,16 @@ public class UploadApi
         return ValourResult.Ok(fullPath);
     }
     
+    private static readonly HashSet<string> FontContentTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "font/ttf",
+        "font/woff",
+        "font/woff2",
+        "font/otf",
+        "application/font-woff",
+        "application/font-woff2",
+    };
+
     [FileUploadOperation.FileContentType]
     [RequestSizeLimit(20_971_520)] // 20 MB
     private static async Task<IResult> ThemeAssetRoute(
@@ -297,55 +307,93 @@ public class UploadApi
         if (file is null)
             return Results.BadRequest("Please attach a file");
 
-        if (!CdnUtils.ImageSharpSupported.Contains(file.ContentType))
+        var isFont = FontContentTypes.Contains(file.ContentType);
+
+        if (!isFont && !CdnUtils.ImageSharpSupported.Contains(file.ContentType))
             return Results.BadRequest("Unsupported file type");
-
-        // Create the asset record first (validates name, limits, etc.)
-        var createResult = await themeService.CreateThemeAssetAsync(themeId, name);
-        if (!createResult.Success)
-            return ValourResult.BadRequest(createResult.Message);
-
-        var assetInfo = createResult.Data;
 
         try
         {
-            // Load at original size — no downscaling for theme assets
-            using var image = await Image.LoadAsync(file.OpenReadStream());
+            using var ms = new MemoryStream();
+            string cdnExt;
+            bool isAnimated = false;
+            string assetType;
 
-            HandleExif(image);
-
-            // Upload at original dimensions as webp
-            var webpEncoder = WebpEncoderTrans;
-            var cdnPath = $"themeAssets/{themeId}/{assetInfo.Id}/original.webp";
-
-            Image<Rgba32>? imageSource = null;
-            var saveTarget = (Image)image;
-            if (image.Frames.Count > 1)
+            if (isFont)
             {
-                imageSource = image.CloneAs<Rgba32>().Frames.ExportFrame(0);
-                saveTarget = imageSource;
+                // Font file — upload raw bytes, no image processing
+                cdnExt = Path.GetExtension(file.FileName)?.TrimStart('.').ToLowerInvariant() ?? "woff2";
+                // Validate extension
+                if (cdnExt != "woff2" && cdnExt != "woff" && cdnExt != "ttf" && cdnExt != "otf")
+                    cdnExt = "woff2";
+
+                var fileStream = file.OpenReadStream();
+                await fileStream.CopyToAsync(ms);
+                assetType = "font";
+            }
+            else
+            {
+                // Image file — existing processing path
+                using var image = await Image.LoadAsync(file.OpenReadStream());
+
+                HandleExif(image);
+
+                isAnimated = image.Frames.Count > 1;
+
+                if (isAnimated)
+                {
+                    cdnExt = Path.GetExtension(file.FileName)?.TrimStart('.').ToLowerInvariant() ?? "gif";
+                    if (cdnExt != "gif" && cdnExt != "webp")
+                        cdnExt = "gif";
+
+                    var fileStream = file.OpenReadStream();
+                    await fileStream.CopyToAsync(ms);
+                }
+                else
+                {
+                    cdnExt = "webp";
+                    var webpEncoder = new WebpEncoder
+                    {
+                        FileFormat = WebpFileFormatType.Lossless,
+                        TransparentColorMode = WebpTransparentColorMode.Preserve,
+                    };
+                    await image.SaveAsync(ms, webpEncoder);
+                }
+
+                assetType = "image";
             }
 
-            using var ms = new MemoryStream();
-            await saveTarget.SaveAsync(ms, webpEncoder);
             ms.Position = 0;
 
-            var uploadResult = await bucketService.UploadPublicImage(ms, cdnPath);
-            imageSource?.Dispose();
+            // Create the asset record (validates name, limits, etc.)
+            var createResult = await themeService.CreateThemeAssetAsync(themeId, name, isAnimated, cdnExt, assetType);
+            if (!createResult.Success)
+                return ValourResult.BadRequest(createResult.Message);
 
-            if (!uploadResult.Success)
+            var assetInfo = createResult.Data;
+
+            try
+            {
+                var cdnPath = $"themeAssets/{themeId}/{assetInfo.Id}/original.{cdnExt}";
+                var uploadResult = await bucketService.UploadPublicImage(ms, cdnPath);
+
+                if (!uploadResult.Success)
+                {
+                    await themeService.DeleteThemeAssetAsync(assetInfo.Id);
+                    return ValourResult.Problem("There was an issue uploading your file. Try a different format or size.");
+                }
+
+                return Results.Json(assetInfo);
+            }
+            catch (Exception)
             {
                 await themeService.DeleteThemeAssetAsync(assetInfo.Id);
-                return ValourResult.Problem("There was an issue uploading your image. Try a different format or size.");
+                throw;
             }
-
-            return Results.Json(assetInfo);
         }
         catch (Exception)
         {
-            // Clean up the DB record if processing fails
-            await themeService.DeleteThemeAssetAsync(assetInfo.Id);
-            return ValourResult.BadRequest("Unable to process image. Check format and size.");
+            return ValourResult.BadRequest("Unable to process file. Check format and size.");
         }
     }
 

@@ -446,24 +446,33 @@ public class ThemeService
     /// <summary>
     /// Returns the asset list for a theme, with computed CDN URLs.
     /// </summary>
+    private static string GetThemeAssetUrl(long themeId, long assetId, string cdnExt)
+    {
+        return $"https://public-cdn.valour.gg/valour-public/themeAssets/{themeId}/{assetId}/original.{cdnExt ?? "webp"}";
+    }
+
     public async Task<List<ThemeAssetInfo>> GetThemeAssetsAsync(long themeId)
     {
-        return await _db.ThemeAssets
+        return (await _db.ThemeAssets
             .Where(x => x.ThemeId == themeId)
+            .Select(x => new { x.Id, x.ThemeId, x.Name, x.Animated, x.CdnExtension, x.AssetType })
+            .ToListAsync())
             .Select(x => new ThemeAssetInfo
             {
                 Id = x.Id,
                 ThemeId = x.ThemeId,
                 Name = x.Name,
-                Url = $"https://public-cdn.valour.gg/valour-public/themeAssets/{x.ThemeId}/{x.Id}/original.webp"
+                Animated = x.Animated,
+                Url = GetThemeAssetUrl(x.ThemeId, x.Id, x.CdnExtension),
+                AssetType = x.AssetType ?? "image",
             })
-            .ToListAsync();
+            .ToList();
     }
 
     /// <summary>
     /// Creates a theme asset record in the database.
     /// </summary>
-    public async Task<TaskResult<ThemeAssetInfo>> CreateThemeAssetAsync(long themeId, string name)
+    public async Task<TaskResult<ThemeAssetInfo>> CreateThemeAssetAsync(long themeId, string name, bool animated = false, string cdnExtension = "webp", string assetType = "image")
     {
         var assetCount = await _db.ThemeAssets.CountAsync(x => x.ThemeId == themeId);
         if (assetCount >= 20)
@@ -485,6 +494,9 @@ public class ThemeService
             Id = IdManager.Generate(),
             ThemeId = themeId,
             Name = name,
+            Animated = animated,
+            CdnExtension = cdnExtension,
+            AssetType = assetType,
         };
 
         _db.ThemeAssets.Add(asset);
@@ -495,7 +507,9 @@ public class ThemeService
             Id = asset.Id,
             ThemeId = asset.ThemeId,
             Name = asset.Name,
-            Url = $"https://public-cdn.valour.gg/valour-public/themeAssets/{asset.ThemeId}/{asset.Id}/original.webp"
+            Animated = asset.Animated,
+            Url = GetThemeAssetUrl(asset.ThemeId, asset.Id, asset.CdnExtension),
+            AssetType = asset.AssetType,
         };
 
         return TaskResult<ThemeAssetInfo>.FromData(info);
