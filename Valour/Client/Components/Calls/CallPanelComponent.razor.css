@@ -526,15 +526,17 @@
     color: rgba(255, 255, 255, 0.88);
 }
 
-.video-overlay {
+.video-overlay-top {
     position: absolute;
-    inset: auto 0 0 0;
-    display: flex;
-    align-items: end;
-    justify-content: space-between;
-    gap: 8px;
+    inset: 0 auto auto 0;
     padding: 8px;
-    background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.55) 100%);
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.55) 0%, transparent 100%);
+    width: 100%;
+    pointer-events: none;
+}
+
+.video-overlay-top > * {
+    pointer-events: auto;
 }
 
 .video-participant-meta {
@@ -542,11 +544,20 @@
     max-width: 70%;
 }
 
+.video-overlay-bottom {
+    position: absolute;
+    inset: auto 0 0 auto;
+    display: flex;
+    justify-content: flex-end;
+    padding: 8px;
+    width: 100%;
+    background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.55) 100%);
+}
+
 .video-overlay-actions {
     display: flex;
     align-items: center;
     gap: 4px;
-    margin-left: auto;
 }
 
 .video-tile-controls {
@@ -662,16 +673,11 @@
     border-color: rgba(255, 255, 255, 0.38);
 }
 
-.video-tile.focus-thumb .video-overlay {
-    flex-wrap: wrap;
-}
-
 .video-tile.focus-thumb .video-participant-meta {
     max-width: 100%;
 }
 
 .video-tile.focus-thumb .video-overlay-actions {
-    width: 100%;
     justify-content: flex-end;
 }
 

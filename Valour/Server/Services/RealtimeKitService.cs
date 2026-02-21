@@ -62,7 +62,7 @@ public class RealtimeKitService
         if (!meetingResult.Success)
             return TaskResult<RealtimeKitVoiceTokenResponse>.FromFailure(meetingResult);
 
-        var customParticipantId = $"{userId}:{Guid.NewGuid():N}";
+        var customParticipantId = userId.ToString();
         var participantResult = await AddParticipantAsync(
             meetingResult.Data,
             customParticipantId,
@@ -393,21 +393,12 @@ public class RealtimeKitService
         [JsonPropertyName("left_at")]
         public string? LeftAt { get; set; }
 
-        /// <summary>
-        /// Extracts the Valour user ID from the custom_participant_id format "{userId}:{guid}".
-        /// Returns null if the format is invalid.
-        /// </summary>
         public long? ExtractUserId()
         {
             if (string.IsNullOrEmpty(CustomParticipantId))
                 return null;
 
-            var colonIndex = CustomParticipantId.IndexOf(':');
-            if (colonIndex <= 0)
-                return null;
-
-            var userIdStr = CustomParticipantId[..colonIndex];
-            return long.TryParse(userIdStr, out var userId) ? userId : null;
+            return long.TryParse(CustomParticipantId, out var userId) ? userId : null;
         }
     }
 }

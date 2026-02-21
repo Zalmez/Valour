@@ -296,7 +296,7 @@
             </div>
         }
 
-        <div class="video-overlay">
+        <div class="video-overlay-top">
             <div class="video-participant-meta">
                 @if (GetParticipantMember(model.Participant.UserId) is { } overlayParticipantMember)
                 {
@@ -307,7 +307,9 @@
                     <UserInfoComponent UserId="@model.Participant.UserId" Style="width: 100%;" />
                 }
             </div>
+        </div>
 
+        <div class="video-overlay-bottom">
             <div class="video-overlay-actions">
                 @if (model.Participant.IsSelf)
                 {
