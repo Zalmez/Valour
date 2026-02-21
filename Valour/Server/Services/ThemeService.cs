@@ -120,15 +120,27 @@ public class ThemeService
         // Validate CSS on theme
         if (!string.IsNullOrWhiteSpace(theme.CustomCss))
         {
+            // Block attribute selectors (XSS vector)
             if (theme.CustomCss.Contains('[') || theme.CustomCss.Contains(']'))
-            {
-                return TaskResult.FromFailure(
-                    "CSS contains disallowed characters []. Attribute selectors are not allowed in custom CSS for security reasons.");
-            }
+                return TaskResult.FromFailure("Attribute selectors [...] are not allowed.");
 
-            // Parse valid CSS and write it back to strip anything malicious
+            // Block URLs (IP tracking protection)
+            var cssLower = theme.CustomCss.ToLowerInvariant();
+            if (cssLower.Contains("url(") || cssLower.Contains("@import") || cssLower.Contains("@font-face"))
+                return TaskResult.FromFailure("URLs, @import, and @font-face are not allowed. Use theme asset variables directly, e.g. background-image: var(--theme-asset-name); (do not wrap with url()).");
+
+            // Block XSS vectors
+            if (cssLower.Contains("javascript:") || cssLower.Contains("expression(") ||
+                cssLower.Contains("behavior:") || cssLower.Contains("-moz-binding") ||
+                cssLower.Contains("</style"))
+                return TaskResult.FromFailure("CSS contains disallowed content for security reasons.");
+
+            // Validate CSS is parseable (but don't rewrite it)
             var css = await _parser.ParseAsync(theme.CustomCss);
-            theme.CustomCss = css.ToCss();
+            if (css is null)
+                return TaskResult.FromFailure("CSS is not valid.");
+
+            // DO NOT call css.ToCss() — preserve original formatting and comments
         }
 
         // Validate all colors
@@ -426,5 +438,77 @@ public class ThemeService
             .Where(x => x.UserId == userId && x.ThemeId == themeId)
             .FirstOrDefaultAsync()).ToModel();
     }
-    
+
+    /// <summary>
+    /// Returns the asset list for a theme, with computed CDN URLs.
+    /// </summary>
+    public async Task<List<ThemeAssetInfo>> GetThemeAssetsAsync(long themeId)
+    {
+        return await _db.ThemeAssets
+            .Where(x => x.ThemeId == themeId)
+            .Select(x => new ThemeAssetInfo
+            {
+                Id = x.Id,
+                ThemeId = x.ThemeId,
+                Name = x.Name,
+                Url = $"https://public-cdn.valour.gg/valour-public/themeAssets/{x.ThemeId}/{x.Id}/512.webp"
+            })
+            .ToListAsync();
+    }
+
+    /// <summary>
+    /// Creates a theme asset record in the database.
+    /// </summary>
+    public async Task<TaskResult<ThemeAssetInfo>> CreateThemeAssetAsync(long themeId, string name)
+    {
+        var assetCount = await _db.ThemeAssets.CountAsync(x => x.ThemeId == themeId);
+        if (assetCount >= 20)
+            return TaskResult<ThemeAssetInfo>.FromFailure("Maximum of 20 assets per theme.");
+
+        // Validate name
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 32)
+            return TaskResult<ThemeAssetInfo>.FromFailure("Asset name must be 1-32 characters.");
+
+        if (!Regex.IsMatch(name, @"^[a-zA-Z0-9_-]+$"))
+            return TaskResult<ThemeAssetInfo>.FromFailure("Asset name must only contain letters, numbers, dashes, and underscores.");
+
+        // Check for duplicate names on this theme
+        if (await _db.ThemeAssets.AnyAsync(x => x.ThemeId == themeId && x.Name == name))
+            return TaskResult<ThemeAssetInfo>.FromFailure("An asset with that name already exists on this theme.");
+
+        var asset = new Valour.Database.Themes.ThemeAsset
+        {
+            Id = IdManager.Generate(),
+            ThemeId = themeId,
+            Name = name,
+        };
+
+        _db.ThemeAssets.Add(asset);
+        await _db.SaveChangesAsync();
+
+        var info = new ThemeAssetInfo
+        {
+            Id = asset.Id,
+            ThemeId = asset.ThemeId,
+            Name = asset.Name,
+            Url = $"https://public-cdn.valour.gg/valour-public/themeAssets/{asset.ThemeId}/{asset.Id}/512.webp"
+        };
+
+        return TaskResult<ThemeAssetInfo>.FromData(info);
+    }
+
+    /// <summary>
+    /// Deletes a theme asset from the database.
+    /// </summary>
+    public async Task<TaskResult> DeleteThemeAssetAsync(long assetId)
+    {
+        var asset = await _db.ThemeAssets.FindAsync(assetId);
+        if (asset is null)
+            return TaskResult.FromFailure("Asset not found.");
+
+        _db.ThemeAssets.Remove(asset);
+        await _db.SaveChangesAsync();
+
+        return TaskResult.SuccessResult;
+    }
 }

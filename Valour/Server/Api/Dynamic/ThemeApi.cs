@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Valour.Server.Models.Themes;
+using Valour.Shared.Models.Themes;
 using Valour.Shared.Queries;
 
 namespace Valour.Server.Api.Dynamic;
@@ -37,7 +38,10 @@ public class ThemeApi
         var theme = await themeService.GetTheme(id);
         if (theme is null)
             return ValourResult.NotFound("Theme not found");
-        
+
+        // Populate assets with computed CDN URLs
+        theme.Assets = await themeService.GetThemeAssetsAsync(id);
+
         return Results.Json(theme);
     }
     
@@ -174,11 +178,45 @@ public class ThemeApi
         var vote = await themeService.GetUserVote(token.UserId, themeId);
         if (vote is null || vote.Id != voteId)
             return ValourResult.NotFound("Vote not found or you do not have permission to delete it");
-        
+
         var result = await themeService.DeleteThemeVote(voteId);
         if (!result.Success)
             return ValourResult.BadRequest(result.Message);
-        
+
+        return ValourResult.Ok();
+    }
+
+    [ValourRoute(HttpVerbs.Get, "api/themes/{themeId}/assets")]
+    [UserRequired]
+    public static async Task<IResult> GetThemeAssets(
+        ThemeService themeService,
+        [FromRoute] long themeId)
+    {
+        var assets = await themeService.GetThemeAssetsAsync(themeId);
+        return Results.Json(assets);
+    }
+
+    [ValourRoute(HttpVerbs.Delete, "api/themes/{themeId}/assets/{assetId}")]
+    [UserRequired]
+    public static async Task<IResult> DeleteThemeAsset(
+        ThemeService themeService,
+        TokenService tokenService,
+        [FromRoute] long themeId,
+        [FromRoute] long assetId)
+    {
+        var token = await tokenService.GetCurrentTokenAsync();
+
+        var theme = await themeService.GetTheme(themeId);
+        if (theme is null)
+            return ValourResult.NotFound("Theme not found");
+
+        if (theme.AuthorId != token.UserId)
+            return ValourResult.Forbid("You do not have permission to modify this theme");
+
+        var result = await themeService.DeleteThemeAssetAsync(assetId);
+        if (!result.Success)
+            return ValourResult.BadRequest(result.Message);
+
         return ValourResult.Ok();
     }
 }

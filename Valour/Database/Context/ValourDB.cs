@@ -234,6 +234,7 @@ public partial class ValourDb : DbContext
     
     public DbSet<Theme> Themes { get; set; }
     public DbSet<ThemeVote> ThemeVotes { get; set; }
+    public DbSet<ThemeAsset> ThemeAssets { get; set; }
     
     public ValourDb()
     {

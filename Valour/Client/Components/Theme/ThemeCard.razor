@@ -139,7 +139,7 @@
         var theme = _theme ?? await ThemeService.FetchThemeAsync(Theme.Id);
         if (theme != null)
         {
-            Editor.OpenEditorWithTheme(theme);
+            await Editor.OpenEditorWithTheme(theme);
         }
     }
 

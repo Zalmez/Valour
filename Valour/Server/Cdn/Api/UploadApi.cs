@@ -88,6 +88,7 @@ public class UploadApi
         app.MapPost("/upload/app/{appId}", AppImageRoute);
         app.MapPost("/upload/file", FileRoute);
         app.MapPost("upload/themeBanner/{themeId}", ThemeBannerRoute);
+        app.MapPost("upload/themeAsset/{themeId}", ThemeAssetRoute);
     }
 
     /// <summary>
@@ -271,6 +272,82 @@ public class UploadApi
         return ValourResult.Ok(fullPath);
     }
     
+    public static readonly ImageSize[] ThemeAssetSizes =
+    {
+        new(512)
+    };
+
+    [FileUploadOperation.FileContentType]
+    [RequestSizeLimit(20_971_520)] // 20 MB
+    private static async Task<IResult> ThemeAssetRoute(
+        HttpContext ctx,
+        ValourDb db,
+        TokenService tokenService,
+        ThemeService themeService,
+        CdnBucketService bucketService,
+        long themeId,
+        [FromQuery] string name)
+    {
+        var authToken = await tokenService.GetCurrentTokenAsync();
+        if (authToken is null) return ValourResult.InvalidToken();
+
+        var theme = await db.Themes.FindAsync(themeId);
+        if (theme is null)
+            return ValourResult.NotFound("Could not find theme");
+
+        if (theme.AuthorId != authToken.UserId)
+            return ValourResult.Forbid("You do not have permission to modify this theme");
+
+        var file = ctx.Request.Form.Files.FirstOrDefault();
+        if (file is null)
+            return Results.BadRequest("Please attach a file");
+
+        if (!CdnUtils.ImageSharpSupported.Contains(file.ContentType))
+            return Results.BadRequest("Unsupported file type");
+
+        // Create the asset record first (validates name, limits, etc.)
+        var createResult = await themeService.CreateThemeAssetAsync(themeId, name);
+        if (!createResult.Success)
+            return ValourResult.BadRequest(createResult.Message);
+
+        var assetInfo = createResult.Data;
+
+        try
+        {
+            using var image = await Image.LoadAsync(
+                new() { TargetSize = new(ThemeAssetSizes[0].Width, ThemeAssetSizes[0].Height) },
+                file.OpenReadStream()
+            );
+
+            HandleExif(image);
+
+            var uploadResult = await UploadPublicImageVariants(
+                bucketService,
+                image,
+                "themeAssets",
+                $"{themeId}/{assetInfo.Id}",
+                ThemeAssetSizes,
+                0,
+                doAnimated: false,
+                doTransparency: true);
+
+            if (!uploadResult.Success)
+            {
+                // Clean up the DB record if upload fails
+                await themeService.DeleteThemeAssetAsync(assetInfo.Id);
+                return ValourResult.Problem(uploadResult.Message);
+            }
+
+            return Results.Json(assetInfo);
+        }
+        catch (Exception)
+        {
+            // Clean up the DB record if processing fails
+            await themeService.DeleteThemeAssetAsync(assetInfo.Id);
+            return ValourResult.BadRequest("Unable to process image. Check format and size.");
+        }
+    }
+
     public static ImageSize[] ProfileBackgroundSizes =
     {
         new(300, 400)

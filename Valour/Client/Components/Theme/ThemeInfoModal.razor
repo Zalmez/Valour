@@ -259,12 +259,12 @@
         StateHasChanged();
     }
 
-    private void OnClickEdit()
+    private async Task OnClickEdit()
     {
         if (Data.Editor is null)
             return;
 
-        Data.Editor.OpenEditorWithTheme(_theme);
+        await Data.Editor.OpenEditorWithTheme(_theme);
         Close();
     }
 

@@ -1,4 +1,4 @@
-﻿@using ExCSS
+﻿@using Valour.Shared.Models.Themes
 @inject IAppStorage LocalStorage
 
 <div id="theme">
@@ -33,9 +33,15 @@
             --p-purple:      @CurrentTheme.PastelPurple;
             --p-red:         @CurrentTheme.PastelRed;
 
-            /* Custom CSS */
-            @GetSanitizedCustomCss()
+            /* Theme asset variables */
+            @foreach (var asset in CurrentTheme.Assets ?? Enumerable.Empty<ThemeAssetInfo>())
+            {
+                <text>--theme-asset-@asset.Name: url(@asset.Url);</text>
+            }
         }
+
+        /* Custom CSS */
+        @GetSanitizedCustomCss()
     </style>
 </div>
 
@@ -45,8 +51,6 @@
     [Parameter]
     public Theme CurrentTheme { get; set; } = Theme.Default;
     public static event Action OnThemeChanged;
-    
-    private StylesheetParser _parser = new StylesheetParser();
     
     public async Task InstallTheme(Theme theme)
     {
@@ -67,26 +71,24 @@
     private string GetSanitizedCustomCss()
     {
         if (string.IsNullOrWhiteSpace(CurrentTheme.CustomCss))
-        {
             return string.Empty;
-        }
 
         try
         {
-            // Prevent attacks via attribute selectors
-            CurrentTheme.CustomCss = CurrentTheme.CustomCss
-                .Replace('[', ' ')
-                .Replace(']', ' ');
-            
-            var styles = _parser.Parse(CurrentTheme.CustomCss);
+            var css = CurrentTheme.CustomCss;
 
-            if (styles is null)
-            {
-                Console.WriteLine("Custom CSS is invalid.");
+            // Defense-in-depth: block dangerous patterns on client too
+            if (css.Contains('[') || css.Contains(']'))
                 return string.Empty;
-            }
-            
-            return styles.ToCss();
+
+            var cssLower = css.ToLowerInvariant();
+            if (cssLower.Contains("url(") || cssLower.Contains("@import") ||
+                cssLower.Contains("@font-face") || cssLower.Contains("javascript:") ||
+                cssLower.Contains("expression(") || cssLower.Contains("behavior:") ||
+                cssLower.Contains("-moz-binding") || cssLower.Contains("</style"))
+                return string.Empty;
+
+            return css; // Return original CSS, preserving comments/formatting
         }
         catch (Exception e)
         {
