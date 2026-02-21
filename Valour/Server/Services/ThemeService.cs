@@ -455,7 +455,7 @@ public class ThemeService
                 Id = x.Id,
                 ThemeId = x.ThemeId,
                 Name = x.Name,
-                Url = $"https://public-cdn.valour.gg/valour-public/themeAssets/{x.ThemeId}/{x.Id}/512.webp"
+                Url = $"https://public-cdn.valour.gg/valour-public/themeAssets/{x.ThemeId}/{x.Id}/original.webp"
             })
             .ToListAsync();
     }
@@ -495,7 +495,7 @@ public class ThemeService
             Id = asset.Id,
             ThemeId = asset.ThemeId,
             Name = asset.Name,
-            Url = $"https://public-cdn.valour.gg/valour-public/themeAssets/{asset.ThemeId}/{asset.Id}/512.webp"
+            Url = $"https://public-cdn.valour.gg/valour-public/themeAssets/{asset.ThemeId}/{asset.Id}/original.webp"
         };
 
         return TaskResult<ThemeAssetInfo>.FromData(info);

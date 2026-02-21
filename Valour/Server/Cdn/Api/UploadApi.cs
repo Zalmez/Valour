@@ -272,11 +272,6 @@ public class UploadApi
         return ValourResult.Ok(fullPath);
     }
     
-    public static readonly ImageSize[] ThemeAssetSizes =
-    {
-        new(512)
-    };
-
     [FileUploadOperation.FileContentType]
     [RequestSizeLimit(20_971_520)] // 20 MB
     private static async Task<IResult> ThemeAssetRoute(
@@ -314,28 +309,34 @@ public class UploadApi
 
         try
         {
-            using var image = await Image.LoadAsync(
-                new() { TargetSize = new(ThemeAssetSizes[0].Width, ThemeAssetSizes[0].Height) },
-                file.OpenReadStream()
-            );
+            // Load at original size — no downscaling for theme assets
+            using var image = await Image.LoadAsync(file.OpenReadStream());
 
             HandleExif(image);
 
-            var uploadResult = await UploadPublicImageVariants(
-                bucketService,
-                image,
-                "themeAssets",
-                $"{themeId}/{assetInfo.Id}",
-                ThemeAssetSizes,
-                0,
-                doAnimated: false,
-                doTransparency: true);
+            // Upload at original dimensions as webp
+            var webpEncoder = WebpEncoderTrans;
+            var cdnPath = $"themeAssets/{themeId}/{assetInfo.Id}/original.webp";
+
+            Image<Rgba32>? imageSource = null;
+            var saveTarget = (Image)image;
+            if (image.Frames.Count > 1)
+            {
+                imageSource = image.CloneAs<Rgba32>().Frames.ExportFrame(0);
+                saveTarget = imageSource;
+            }
+
+            using var ms = new MemoryStream();
+            await saveTarget.SaveAsync(ms, webpEncoder);
+            ms.Position = 0;
+
+            var uploadResult = await bucketService.UploadPublicImage(ms, cdnPath);
+            imageSource?.Dispose();
 
             if (!uploadResult.Success)
             {
-                // Clean up the DB record if upload fails
                 await themeService.DeleteThemeAssetAsync(assetInfo.Id);
-                return ValourResult.Problem(uploadResult.Message);
+                return ValourResult.Problem("There was an issue uploading your image. Try a different format or size.");
             }
 
             return Results.Json(assetInfo);
