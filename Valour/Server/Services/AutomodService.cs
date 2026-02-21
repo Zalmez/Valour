@@ -483,7 +483,16 @@ public class AutomodService
                         long targetChannelId;
                         long targetPlanetId;
 
-                        if (message is not null)
+                        if (action.ResponseChannelId.HasValue)
+                        {
+                            targetChannelId = action.ResponseChannelId.Value;
+                            targetMemberId = message?.AuthorMemberId ?? member.Id;
+                            targetPlanetId = message?.PlanetId ?? member.PlanetId;
+
+                            if (message is not null && message.AuthorMemberId is null)
+                                break;
+                        }
+                        else if (message is not null)
                         {
                             if (message.AuthorMemberId is null)
                                 break;

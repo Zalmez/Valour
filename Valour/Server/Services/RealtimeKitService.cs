@@ -62,7 +62,10 @@ public class RealtimeKitService
         if (!meetingResult.Success)
             return TaskResult<RealtimeKitVoiceTokenResponse>.FromFailure(meetingResult);
 
+        // Always kick any existing participant for this user before adding a new one
         var customParticipantId = userId.ToString();
+        await KickParticipantFromMeetingAsync(meetingResult.Data, customParticipantId);
+
         var participantResult = await AddParticipantAsync(
             meetingResult.Data,
             customParticipantId,
@@ -167,6 +170,46 @@ public class RealtimeKitService
                 AuthToken = data.Token
             },
             "add participant");
+    }
+
+    /// <summary>
+    /// Kicks a participant from the active session of a meeting via the Cloudflare API.
+    /// Failures are logged but not thrown — this is best-effort cleanup.
+    /// </summary>
+    private async Task KickParticipantFromMeetingAsync(string meetingId, string customParticipantId)
+    {
+        try
+        {
+            var endpoint = BuildEndpoint($"meetings/{meetingId}/active-session/kick");
+            var payload = new KickParticipantRequest
+            {
+                CustomParticipantIds = new[] { customParticipantId }
+            };
+
+            var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+            {
+                Content = JsonContent.Create(payload)
+            };
+
+            request.Headers.Authorization =
+                new AuthenticationHeaderValue("Bearer", CloudflareConfig.Instance.RealtimeApiToken);
+
+            using var client = _httpClientFactory.CreateClient();
+            using var response = await client.SendAsync(request);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                _logger.LogDebug(
+                    "Kick participant {ParticipantId} from meeting {MeetingId} returned {Status}: {Body}",
+                    customParticipantId, meetingId, (int)response.StatusCode, body);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to kick participant {ParticipantId} from meeting {MeetingId}",
+                customParticipantId, meetingId);
+        }
     }
 
     /// <summary>
@@ -311,6 +354,12 @@ public class RealtimeKitService
 
         [JsonPropertyName("metadata")]
         public string Metadata { get; set; } = string.Empty;
+    }
+
+    private sealed class KickParticipantRequest
+    {
+        [JsonPropertyName("custom_participant_ids")]
+        public string[] CustomParticipantIds { get; set; } = Array.Empty<string>();
     }
 
     private sealed class CloudflareMeetingResult

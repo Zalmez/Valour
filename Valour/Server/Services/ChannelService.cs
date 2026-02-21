@@ -464,6 +464,73 @@ public class ChannelService
     }
 
     /// <summary>
+    /// Sets the primary (default) channel for a planet
+    /// </summary>
+    public async Task<TaskResult> SetPrimaryChannelAsync(long planetId, long channelId)
+    {
+        var hostedPlanet = await _hostedPlanetService.GetRequiredAsync(planetId);
+        var oldDefault = hostedPlanet.GetDefaultChannel();
+
+        if (oldDefault?.Id == channelId)
+            return TaskResult.SuccessResult;
+
+        var newDefault = hostedPlanet.GetChannel(channelId);
+        if (newDefault is null)
+            return new TaskResult(false, "Channel not found.");
+
+        if (newDefault.ChannelType != ChannelTypeEnum.PlanetChat)
+            return new TaskResult(false, "Primary channel must be a chat channel.");
+
+        if (newDefault.PlanetId != planetId)
+            return new TaskResult(false, "Channel does not belong to this planet.");
+
+        var trans = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            if (oldDefault is not null)
+            {
+                var oldDb = await _db.Channels.FindAsync(oldDefault.Id);
+                if (oldDb is not null)
+                {
+                    oldDb.IsDefault = false;
+                    await _db.SaveChangesAsync();
+                }
+            }
+
+            var newDb = await _db.Channels.FindAsync(channelId);
+            if (newDb is null)
+            {
+                await trans.RollbackAsync();
+                return new TaskResult(false, "Channel not found in database.");
+            }
+
+            newDb.IsDefault = true;
+            await _db.SaveChangesAsync();
+            await trans.CommitAsync();
+        }
+        catch (Exception e)
+        {
+            await trans.RollbackAsync();
+            _logger.LogError("{Time}:{Error}", DateTime.UtcNow.ToShortTimeString(), e.Message);
+            return new TaskResult(false, e.Message);
+        }
+
+        // Update cache and broadcast
+        if (oldDefault is not null)
+        {
+            oldDefault.IsDefault = false;
+            hostedPlanet.UpsertChannel(oldDefault);
+            _coreHub.NotifyPlanetItemChange(planetId, oldDefault);
+        }
+
+        newDefault.IsDefault = true;
+        hostedPlanet.UpsertChannel(newDefault);
+        _coreHub.NotifyPlanetItemChange(planetId, newDefault);
+
+        return TaskResult.SuccessResult;
+    }
+
+    /// <summary>
     /// Returns the number of children for the given channel id
     /// </summary>
     public Task<int> GetChildCountAsync(long id) =>

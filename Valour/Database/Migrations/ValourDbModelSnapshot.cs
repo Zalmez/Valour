@@ -96,6 +96,10 @@ namespace Valour.Database.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("planet_id");
 
+                    b.Property<long?>("ResponseChannelId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("response_channel_id");
+
                     b.Property<long?>("RoleId")
                         .HasColumnType("bigint")
                         .HasColumnName("role_id");

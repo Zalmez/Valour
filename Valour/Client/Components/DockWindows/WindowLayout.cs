@@ -444,23 +444,26 @@ public class WindowLayout
     {
         // If we are already split, we cannot split further
         if (IsSplit)
-            return;        
-        
+            return;
+
         // Ensure location is valid
         if (location == WindowDropTargets.DropLocation.Center)
             return;
-        
-        var direction = 
+
+        var direction =
             (location == WindowDropTargets.DropLocation.Left || location == WindowDropTargets.DropLocation.Right)
                 ? SplitDirection.Horizontal
                 : SplitDirection.Vertical;
-        
+
         // Create split
         Split = new WindowSplit(this, direction, 0.5f);
 
         List<WindowTab> tabsOne;
         List<WindowTab> tabsTwo;
-        
+
+        // Save focused tab before splitting
+        var previousFocused = FocusedTab;
+
         if (location == WindowDropTargets.DropLocation.Left || location == WindowDropTargets.DropLocation.Up)
         {
             tabsOne = new List<WindowTab>()
@@ -468,11 +471,11 @@ public class WindowLayout
                 startingTab
             };
             tabsTwo = Tabs;
-            
+
             // Create children
             ChildOne = new WindowLayout(DockComponent, this);
             ChildTwo = new WindowLayout(DockComponent, this);
-            
+
             ChildOne.SetTabsRaw(tabsOne);
             ChildTwo.SetTabsRaw(tabsTwo);
         }
@@ -483,7 +486,7 @@ public class WindowLayout
             {
                 startingTab
             };
-            
+
             // Create children
             ChildOne = new WindowLayout(DockComponent, this);
             ChildTwo = new WindowLayout(DockComponent, this);
@@ -491,11 +494,19 @@ public class WindowLayout
             ChildOne.SetTabsRaw(tabsOne);
             ChildTwo.SetTabsRaw(tabsTwo);
         }
-        
+
+        // Set focused tabs on child layouts
+        ChildOne.FocusedTab = tabsOne.Contains(previousFocused) ? previousFocused : tabsOne.FirstOrDefault();
+        ChildTwo.FocusedTab = tabsTwo.Contains(previousFocused) ? previousFocused : tabsTwo.FirstOrDefault();
+
         // Clear tabs
         Tabs = null;
-        
+
         RecalculatePosition();
+
+        // Notify tab components to re-render with their new layout positions
+        ChildOne.NotifyTabsOfChange();
+        ChildTwo.NotifyTabsOfChange();
 
         // Re-render layouts
         await DockComponent.NotifyLayoutChanged();

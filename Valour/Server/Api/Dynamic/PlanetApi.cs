@@ -182,6 +182,28 @@ public class PlanetApi
         return Results.Json(channel);
     }
 
+    [ValourRoute(HttpVerbs.Put, "api/planets/{id}/channels/primary/{channelId}")]
+    [UserRequired(UserPermissionsEnum.PlanetManagement)]
+    public static async Task<IResult> SetPrimaryChannelRouteAsync(
+        long id,
+        long channelId,
+        ChannelService channelService,
+        PlanetMemberService memberService)
+    {
+        var member = await memberService.GetCurrentAsync(id);
+        if (member is null)
+            return ValourResult.NotPlanetMember();
+
+        if (!await memberService.HasPermissionAsync(member, PlanetPermissions.Manage))
+            return ValourResult.LacksPermission(PlanetPermissions.Manage);
+
+        var result = await channelService.SetPrimaryChannelAsync(id, channelId);
+        if (!result.Success)
+            return ValourResult.Problem(result.Message);
+
+        return Results.Ok();
+    }
+
     [ValourRoute(HttpVerbs.Get, "api/planets/{id}/memberinfo")]
     [UserRequired(UserPermissionsEnum.Membership)]
     public static async Task<IResult> GetMemberInfoRouteAsync(

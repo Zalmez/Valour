@@ -8,18 +8,19 @@
     width: 100%;
     padding: 0 50px; /* Add padding for navigation buttons */
     position: relative;
+    pointer-events: none; /* Let touch events pass through to nav buttons underneath */
 }
 
 .carousel-viewport.fade-enabled {
-    mask: linear-gradient(to right, 
-        transparent 0px, 
-        black var(--fade-width, 50px), 
-        black calc(100% - var(--fade-width, 50px)), 
+    mask: linear-gradient(to right,
+        transparent 0px,
+        black var(--fade-width, 50px),
+        black calc(100% - var(--fade-width, 50px)),
         transparent 100%);
-    -webkit-mask: linear-gradient(to right, 
-        transparent 0px, 
-        black var(--fade-width, 50px), 
-        black calc(100% - var(--fade-width, 50px)), 
+    -webkit-mask: linear-gradient(to right,
+        transparent 0px,
+        black var(--fade-width, 50px),
+        black calc(100% - var(--fade-width, 50px)),
         transparent 100%);
 }
 
@@ -27,6 +28,7 @@
     display: flex;
     will-change: transform;
     gap: var(--carousel-gap, 16px);
+    pointer-events: auto; /* Re-enable events on the actual track content */
 }
 
 .carousel-item {
@@ -56,6 +58,8 @@
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 10;
+    touch-action: manipulation; /* Prevent 300ms delay on mobile */
+    -webkit-tap-highlight-color: transparent;
     box-shadow:
         0 4px 12px rgba(0, 0, 0, 0.3),
         inset 0 1px 0 rgba(255, 255, 255, 0.05);

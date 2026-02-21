@@ -119,25 +119,25 @@
             if (dimensions.Width <= 0) return;
 
             _elementWidth = dimensions.Width;
-            
+
             // Calculate available width (accounting for viewport padding)
             var availableWidth = _elementWidth - 100; // 50px padding on each side
-            
+
             // Calculate optimal number of visible items based on min/max width constraints
             _visibleItems = CalculateOptimalVisibleItems(availableWidth);
-            
+
             // Calculate item width with min/max constraints
             var gapsTotal = (_visibleItems - 1) * GapPx;
             var calculatedWidth = Math.Max(0, (availableWidth - gapsTotal) / _visibleItems);
             _itemWidth = Math.Clamp(calculatedWidth, MinItemWidth, MaxItemWidth);
-            
+
             // Update navigation bounds
             UpdateNavigationBounds();
-            
+
             // Update offset
             UpdateOffset();
-            
-            StateHasChanged();
+
+            await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
         {
@@ -292,24 +292,24 @@
         }
     }
 
-    private void ScrollLeft()
+    private async Task ScrollLeft()
     {
         if (!_canScrollLeft) return;
-        
+
         _currentIndex = Math.Max(0, _currentIndex - 1);
         UpdateNavigationBounds();
         UpdateOffset();
-        StateHasChanged();
+        await InvokeAsync(StateHasChanged);
     }
 
-    private void ScrollRight()
+    private async Task ScrollRight()
     {
         if (!_canScrollRight) return;
-        
+
         _currentIndex = Math.Min(_maxIndex, _currentIndex + 1);
         UpdateNavigationBounds();
         UpdateOffset();
-        StateHasChanged();
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task HandleResize(ElementDimensions dimensions)

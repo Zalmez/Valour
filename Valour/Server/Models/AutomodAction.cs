@@ -16,4 +16,5 @@ public bool UseGlobalStrikes { get; set; }
     public long? RoleId { get; set; }
     public DateTime? Expires { get; set; }
     public string Message { get; set; }
+    public long? ResponseChannelId { get; set; }
 }

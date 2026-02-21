@@ -18,6 +18,7 @@ public class AutomodAction : ISharedAutomodAction
     public long? RoleId { get; set; }
     public DateTime? Expires { get; set; }
     public string Message { get; set; }
+    public long? ResponseChannelId { get; set; }
 
     public static void SetupDbModel(ModelBuilder builder)
     {
@@ -37,6 +38,7 @@ public class AutomodAction : ISharedAutomodAction
             e.Property(x => x.Strikes).HasColumnName("strikes");
             e.Property(x => x.UseGlobalStrikes).HasColumnName("use_global_strikes");
             e.Property(x => x.Message).HasColumnName("message");
+            e.Property(x => x.ResponseChannelId).HasColumnName("response_channel_id");
             e.HasIndex(x => x.TriggerId);
             e.HasIndex(x => x.PlanetId);
         });

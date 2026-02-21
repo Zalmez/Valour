@@ -1,7 +1,9 @@
 @inherits Modal<AutomodActionModal.ModalParams>
 @using Valour.Sdk.Models
 @using Valour.Shared.Models.Staff
+@using Valour.Shared.Models
 @using Valour.Shared
+@using Valour.Client.Utility
 @using System
 @inject ValourClient Client
 
@@ -56,6 +58,23 @@
             </div>
         }
 
+        @if (ShowResponseChannel)
+        {
+            <div class="form-group mt-2">
+                <label>Response Channel</label>
+                <CustomDropdown TItem="Channel"
+                                Items="_chatChannels"
+                                InitialItem="_selectedResponseChannel"
+                                SelectedItemChanged="OnResponseChannelChanged"
+                                ItemTemplate="ChannelFragments.ChannelPill"
+                                Placeholder="Automatic (where triggered)" />
+            </div>
+            @if (_action.ResponseChannelId.HasValue)
+            {
+                <button class="v-btn mt-1" style="font-size:12px" @onclick="ClearResponseChannel">Reset to Automatic</button>
+            }
+        }
+
         <ResultLabel Result="@_result" />
     </MainArea>
     <ButtonArea>
@@ -81,16 +100,25 @@
     private bool _isNew;
     private int _duration;
     private PlanetRole? _selectedRole;
+    private Channel? _selectedResponseChannel;
+    private List<Channel> _chatChannels = new();
     private ITaskResult _result;
 
 
     protected override void OnInitialized()
     {
         _isNew = Data.Action is null;
+        _chatChannels = Data.Planet.Channels
+            .Where(c => c.ChannelType == ChannelTypeEnum.PlanetChat)
+            .ToList();
+
         if (Data.Action is not null)
         {
             _action = Data.Action;
             _selectedRole = Data.Planet.Roles.FirstOrDefault(r => r.Id == (_action.RoleId ?? 0));
+            _selectedResponseChannel = _action.ResponseChannelId.HasValue
+                ? _chatChannels.FirstOrDefault(c => c.Id == _action.ResponseChannelId.Value)
+                : null;
             _duration = _action.Expires.HasValue ?
                 (int)Math.Ceiling((_action.Expires.Value - DateTime.UtcNow).TotalMinutes) : 0;
         }
@@ -105,12 +133,14 @@
                 UseGlobalStrikes = false
             };
             _selectedRole = null;
+            _selectedResponseChannel = null;
         }
     }
 
     private bool ShowExpires => _action.ActionType == AutomodActionType.Ban;
     private bool ShowRole => _action.ActionType == AutomodActionType.AddRole || _action.ActionType == AutomodActionType.RemoveRole;
     private bool ShowMessage => _action.ActionType == AutomodActionType.Respond || _action.ActionType == AutomodActionType.Kick || _action.ActionType == AutomodActionType.Ban;
+    private bool ShowResponseChannel => _action.ActionType == AutomodActionType.Respond;
 
     private static string GetActionTypeLabel(AutomodActionType actionType) => actionType switch
     {
@@ -125,6 +155,19 @@
     {
         _selectedRole = role;
         return Task.CompletedTask;
+    }
+
+    private Task OnResponseChannelChanged(Channel channel)
+    {
+        _selectedResponseChannel = channel;
+        _action.ResponseChannelId = channel?.Id;
+        return Task.CompletedTask;
+    }
+
+    private void ClearResponseChannel()
+    {
+        _selectedResponseChannel = null;
+        _action.ResponseChannelId = null;
     }
 
     private async Task OnSave()
