@@ -2,11 +2,12 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>Valour</AssemblyName>
     <RootNamespace>Valour.WindowsLauncher</RootNamespace>
-    <ApplicationIcon Condition="Exists('valour-launcher.ico')">valour-launcher.ico</ApplicationIcon>
+    <ApplicationIcon>../../Client.Maui/Platforms/Windows/trayicon.ico</ApplicationIcon>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
