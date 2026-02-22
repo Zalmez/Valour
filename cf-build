@@ -12,6 +12,25 @@ dotnet --version
 dotnet workload restore Valour/Client.Blazor/Valour.Client.Blazor.csproj
 dotnet workload install wasm-tools
 
+# Resolve a short commit hash for source + asset version placeholders.
+SHORT_HASH="${CF_PAGES_COMMIT_SHA:-}"
+if [ -z "$SHORT_HASH" ]; then
+  SHORT_HASH="$(git rev-parse --short=8 HEAD 2>/dev/null || true)"
+fi
+if [ -z "$SHORT_HASH" ]; then
+  SHORT_HASH="dev"
+fi
+SHORT_HASH="$(printf '%s' "$SHORT_HASH" | cut -c1-8)"
+echo "Using SHORTHASH=${SHORT_HASH}"
+export VALOUR_SHORT_HASH="$SHORT_HASH"
+
+# Patch the shared version constant before compile so UI version text does not show $(SHORTHASH).
+VERSION_FILE="Valour/Shared/Version.cs"
+VERSION_FILE_BAK="$(mktemp)"
+cp "$VERSION_FILE" "$VERSION_FILE_BAK"
+trap 'cp "$VERSION_FILE_BAK" "$VERSION_FILE"; rm -f "$VERSION_FILE_BAK"' EXIT
+perl -pi -e 's/\$\(SHORTHASH\)/$ENV{VALOUR_SHORT_HASH}/g' "$VERSION_FILE"
+
 # Cloudflare Pages expects the configured output directory to contain index.html at its root.
 # dotnet publish for Blazor WASM places the site in <publish>/wwwroot, so flatten it into ./output.
 PUBLISH_DIR=cf-publish
@@ -52,16 +71,6 @@ printf 'window.valourRuntimeConfig = window.valourRuntimeConfig || {};\nwindow.v
 cp Valour/Client/wwwroot/index.html "$OUTPUT_DIR"/index.html
 
 # Replace literal build placeholders used by the app for cache-busting/version display.
-SHORT_HASH="${CF_PAGES_COMMIT_SHA:-}"
-if [ -z "$SHORT_HASH" ]; then
-  SHORT_HASH="$(git rev-parse --short=8 HEAD 2>/dev/null || true)"
-fi
-if [ -z "$SHORT_HASH" ]; then
-  SHORT_HASH="dev"
-fi
-SHORT_HASH="$(printf '%s' "$SHORT_HASH" | cut -c1-8)"
-echo "Using SHORTHASH=${SHORT_HASH}"
-export VALOUR_SHORT_HASH="$SHORT_HASH"
 grep -RIl '\$(SHORTHASH)' "$OUTPUT_DIR" 2>/dev/null | while IFS= read -r file; do
   perl -pi -e 's/\$\(SHORTHASH\)/$ENV{VALOUR_SHORT_HASH}/g' "$file"
 done || true
