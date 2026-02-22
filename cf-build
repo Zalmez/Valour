@@ -10,4 +10,16 @@ dotnet --version
 # Build Valour Client.Blazor for Cloudflare Pages
 dotnet workload restore Valour/Client.Blazor/Valour.Client.Blazor.csproj
 dotnet workload install wasm-tools
-dotnet publish Valour/Client.Blazor/Valour.Client.Blazor.csproj -c Release -o output
+
+# Cloudflare Pages expects the configured output directory to contain index.html at its root.
+# dotnet publish for Blazor WASM places the site in <publish>/wwwroot, so flatten it into ./output.
+PUBLISH_DIR=cf-publish
+OUTPUT_DIR=output
+
+rm -rf "$PUBLISH_DIR" "$OUTPUT_DIR"
+dotnet publish Valour/Client.Blazor/Valour.Client.Blazor.csproj -c Release -o "$PUBLISH_DIR"
+mkdir -p "$OUTPUT_DIR"
+cp -R "$PUBLISH_DIR"/wwwroot/. "$OUTPUT_DIR"/
+
+# SPA fallback for client-side routing (prevents refresh/deep-link 404s on Pages).
+printf '/* /index.html 200\n' > "$OUTPUT_DIR/_redirects"
