@@ -1581,6 +1581,8 @@
                 VideoTrackId = x.VideoTrackId,
                 HasScreenShareTrack = x.HasScreenShareTrack,
                 ScreenShareTrackId = x.ScreenShareTrackId,
+                HasScreenShareAudioTrack = x.HasScreenShareAudioTrack,
+                ScreenShareAudioTrackId = x.ScreenShareAudioTrackId,
                 IsSelf = x.IsSelf,
                 IsActiveSpeaker = string.Equals(x.PeerId, activeSpeakerPeerId, StringComparison.Ordinal)
             })
@@ -1639,6 +1641,8 @@
                 || !string.Equals(left.VideoTrackId, right.VideoTrackId, StringComparison.Ordinal)
                 || left.HasScreenShareTrack != right.HasScreenShareTrack
                 || !string.Equals(left.ScreenShareTrackId, right.ScreenShareTrackId, StringComparison.Ordinal)
+                || left.HasScreenShareAudioTrack != right.HasScreenShareAudioTrack
+                || !string.Equals(left.ScreenShareAudioTrackId, right.ScreenShareAudioTrackId, StringComparison.Ordinal)
                 || left.IsSelf != right.IsSelf
                 || left.IsActiveSpeaker != right.IsActiveSpeaker)
             {
@@ -1682,6 +1686,8 @@
         public string? VideoTrackId { get; init; }
         public bool HasScreenShareTrack { get; init; }
         public string? ScreenShareTrackId { get; init; }
+        public bool HasScreenShareAudioTrack { get; init; }
+        public string? ScreenShareAudioTrackId { get; init; }
         public bool IsSelf { get; init; }
         public bool IsActiveSpeaker { get; init; }
     }

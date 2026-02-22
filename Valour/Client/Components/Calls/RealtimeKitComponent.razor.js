@@ -578,6 +578,14 @@ function getParticipantScreenShareTrack(participant) {
         ?? null;
 }
 
+function getParticipantScreenShareAudioTrack(participant) {
+    return participant?.screenShareAudioTrack
+        ?? participant?.screenShareTracks?.audio
+        ?? participant?.screenshareAudioTrack
+        ?? participant?.screenshareTracks?.audio
+        ?? null;
+}
+
 function mapParticipantSnapshot(participant, isSelf = false) {
     if (!participant?.id) {
         return null;
@@ -585,6 +593,7 @@ function mapParticipantSnapshot(participant, isSelf = false) {
 
     const videoTrack = getParticipantVideoTrack(participant);
     const screenShareTrack = getParticipantScreenShareTrack(participant);
+    const screenShareAudioTrack = getParticipantScreenShareAudioTrack(participant);
 
     return {
         peerId: participant.id,
@@ -601,6 +610,8 @@ function mapParticipantSnapshot(participant, isSelf = false) {
         videoTrackId: videoTrack?.id ?? null,
         hasScreenShareTrack: !!screenShareTrack,
         screenShareTrackId: screenShareTrack?.id ?? null,
+        hasScreenShareAudioTrack: !!screenShareAudioTrack,
+        screenShareAudioTrackId: screenShareAudioTrack?.id ?? null,
         isSelf
     };
 }
@@ -623,14 +634,13 @@ function getVideoElement(elementId) {
     return element instanceof HTMLVideoElement ? element : null;
 }
 
-function getElementAudioTrack(audioElement) {
+function getElementAudioTrackIds(audioElement) {
     const stream = audioElement?.srcObject;
     if (!(stream instanceof MediaStream)) {
-        return null;
+        return [];
     }
 
-    const tracks = stream.getAudioTracks();
-    return tracks.length > 0 ? tracks[0] : null;
+    return stream.getAudioTracks().map((track) => track.id).sort();
 }
 
 function clearAudioElement(audioElement) {
@@ -678,9 +688,12 @@ export function syncParticipantAudio(elementId, participantId, volume = 1.0) {
     }
 
     const participant = getParticipantById(activeMeeting, participantId);
-    const audioTrack = participant?.audioTrack;
+    const micAudioTrack = participant?.audioTrack ?? null;
+    const screenShareAudioTrack = getParticipantScreenShareAudioTrack(participant);
     const isSelfParticipant = participant?.id === activeMeeting?.self?.id;
-    const shouldPlayAudio = !isSelfParticipant && !!participant?.audioEnabled && !!audioTrack;
+    const shouldPlayMicAudio = !!participant?.audioEnabled && !!micAudioTrack;
+    const shouldPlayScreenShareAudio = !!participant?.screenShareEnabled && !!screenShareAudioTrack;
+    const shouldPlayAudio = !isSelfParticipant && (shouldPlayMicAudio || shouldPlayScreenShareAudio);
 
     audioElement.autoplay = true;
     audioElement.playsInline = true;
@@ -690,9 +703,22 @@ export function syncParticipantAudio(elementId, participantId, volume = 1.0) {
         return;
     }
 
-    const existingTrack = getElementAudioTrack(audioElement);
-    if (!existingTrack || existingTrack.id !== audioTrack.id) {
-        audioElement.srcObject = new MediaStream([audioTrack]);
+    const desiredTracks = [];
+    if (shouldPlayMicAudio) {
+        desiredTracks.push(micAudioTrack);
+    }
+
+    if (shouldPlayScreenShareAudio) {
+        desiredTracks.push(screenShareAudioTrack);
+    }
+
+    const desiredTrackIds = desiredTracks.map((track) => track.id).sort();
+    const existingTrackIds = getElementAudioTrackIds(audioElement);
+    const hasSameAudioTracks = desiredTrackIds.length === existingTrackIds.length
+        && desiredTrackIds.every((trackId, index) => trackId === existingTrackIds[index]);
+
+    if (!hasSameAudioTracks) {
+        audioElement.srcObject = new MediaStream(desiredTracks);
     }
 
     audioElement.volume = Math.max(0, Math.min(1, volume));

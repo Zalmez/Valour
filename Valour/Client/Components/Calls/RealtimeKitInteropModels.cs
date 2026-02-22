@@ -220,6 +220,12 @@ public class RealtimeKitParticipantState
     [JsonPropertyName("screenShareTrackId")]
     public string? ScreenShareTrackId { get; set; }
 
+    [JsonPropertyName("hasScreenShareAudioTrack")]
+    public bool HasScreenShareAudioTrack { get; set; }
+
+    [JsonPropertyName("screenShareAudioTrackId")]
+    public string? ScreenShareAudioTrackId { get; set; }
+
     [JsonPropertyName("isSelf")]
     public bool IsSelf { get; set; }
 }

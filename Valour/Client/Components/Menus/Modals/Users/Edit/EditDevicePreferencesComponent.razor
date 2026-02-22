@@ -139,7 +139,11 @@
     private bool _isRequestingMicPermission;
     private bool _isRequestingCameraPermission;
     private bool _hasInitializedDeviceLists;
+    private bool _isInitializingDeviceLists;
+    private int _initialDeviceLoadAttempts;
     private bool _errorReportingEnabled = DevicePreferences.ErrorReportingEnabled;
+    private const int MaxInitialDeviceLoadAttempts = 20;
+    private const string WebViewContextUnavailableMessage = "Cannot invoke JavaScript outside of a WebView context";
 
     private bool ShouldShowMicPermissionButton =>
         string.Equals(_micPermissionState, "prompt", StringComparison.OrdinalIgnoreCase) ||
@@ -163,12 +167,31 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender || _hasInitializedDeviceLists)
+        _ = firstRender;
+
+        if (_hasInitializedDeviceLists || _isInitializingDeviceLists || _initialDeviceLoadAttempts >= MaxInitialDeviceLoadAttempts)
             return;
 
-        _hasInitializedDeviceLists = true;
-        await RefreshMicsAsync();
-        await RefreshCamerasAsync();
+        _isInitializingDeviceLists = true;
+        _initialDeviceLoadAttempts++;
+
+        try
+        {
+            var micsLoaded = await RefreshMicsAsync();
+            var camerasLoaded = await RefreshCamerasAsync();
+            _hasInitializedDeviceLists = micsLoaded && camerasLoaded;
+
+            if (!_hasInitializedDeviceLists && _initialDeviceLoadAttempts < MaxInitialDeviceLoadAttempts)
+            {
+                // WebView JS context can become available shortly after first render on some platforms.
+                await Task.Delay(250);
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        finally
+        {
+            _isInitializingDeviceLists = false;
+        }
     }
 
     private async Task OnRefreshMicsAsync()
@@ -197,7 +220,7 @@
         StateHasChanged();
     }
 
-    private async Task RefreshMicsAsync(bool requestPermission = false)
+    private async Task<bool> RefreshMicsAsync(bool requestPermission = false)
     {
         _isLoadingMics = true;
         _micError = null;
@@ -246,11 +269,20 @@
                     }
                 }
             }
+
+            return true;
         }
         catch (Exception ex)
         {
+            if (IsWebViewContextUnavailableError(ex))
+            {
+                _micError = "Device APIs are still initializing. Retrying...";
+                return false;
+            }
+
             _mics = Array.Empty<InputMic>();
             _micError = string.IsNullOrWhiteSpace(ex.Message) ? "Failed to load microphone devices." : ex.Message;
+            return true;
         }
         finally
         {
@@ -266,7 +298,7 @@
         await DevicePreferences.SetCameraDeviceId(selectedCameraId, LocalStorage);
     }
 
-    private async Task RefreshCamerasAsync(bool requestPermission = false)
+    private async Task<bool> RefreshCamerasAsync(bool requestPermission = false)
     {
         _isLoadingCameras = true;
         _cameraError = null;
@@ -315,17 +347,43 @@
                     }
                 }
             }
+
+            return true;
         }
         catch (Exception ex)
         {
+            if (IsWebViewContextUnavailableError(ex))
+            {
+                _cameraError = "Device APIs are still initializing. Retrying...";
+                return false;
+            }
+
             _cameras = Array.Empty<InputMic>();
             _cameraError = string.IsNullOrWhiteSpace(ex.Message) ? "Failed to load camera devices." : ex.Message;
+            return true;
         }
         finally
         {
             _isLoadingCameras = false;
             StateHasChanged();
         }
+    }
+
+    private static bool IsWebViewContextUnavailableError(Exception ex)
+    {
+        Exception? current = ex;
+        while (current is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(current.Message)
+                && current.Message.Contains(WebViewContextUnavailableMessage, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            current = current.InnerException;
+        }
+
+        return false;
     }
 
     private async Task SwitchAutoEmojis()
