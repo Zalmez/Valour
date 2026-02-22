@@ -11,7 +11,8 @@ namespace Valour.WindowsLauncher;
 internal static class Program
 {
     private const string LatestReleaseApiUrl = "https://api.github.com/repos/Valour-Software/Valour/releases/latest";
-    private const string ReleaseAssetName = "Valour-full.exe";
+    private const string ReleaseAssetName = "Valour-full.zip";
+    private const string ReleaseExecutableName = "Valour-full.exe";
     private const string LatestTagFileName = "latest-release-tag.txt";
     private static readonly byte[] PayloadMarker = Encoding.ASCII.GetBytes("VALOURP1");
     private static readonly HttpClient GitHubClient = CreateGitHubClient();
@@ -358,7 +359,7 @@ internal static class Program
                 continue;
             }
 
-            return new GitHubReleaseAsset(tag, downloadUrl);
+            return new GitHubReleaseAsset(tag, name, downloadUrl);
         }
 
         return null;
@@ -419,12 +420,22 @@ internal static class Program
             }
 
             statusWindow?.SetStatus("Verifying update...");
-            if (!HasEmbeddedPayloadTrailer(tempPath))
+            var extractedExecutablePath = tempPath + ".exe";
+            if (releaseAsset.IsZipAsset)
+            {
+                ExtractReleaseExecutableFromArchive(tempPath, extractedExecutablePath);
+            }
+            else
+            {
+                File.Move(tempPath, extractedExecutablePath, overwrite: true);
+            }
+
+            if (!HasEmbeddedPayloadTrailer(extractedExecutablePath))
             {
                 throw new InvalidDataException("Downloaded release asset does not contain a valid launcher payload.");
             }
 
-            File.Move(tempPath, destinationPath, overwrite: true);
+            File.Move(extractedExecutablePath, destinationPath, overwrite: true);
             return destinationPath;
         }
         finally
@@ -440,12 +451,60 @@ internal static class Program
                     // Ignore temporary cleanup failures.
                 }
             }
+
+            var extractedExecutablePath = tempPath + ".exe";
+            if (File.Exists(extractedExecutablePath))
+            {
+                try
+                {
+                    File.Delete(extractedExecutablePath);
+                }
+                catch
+                {
+                    // Ignore temporary cleanup failures.
+                }
+            }
         }
     }
 
     private static string GetReleaseExecutablePath(string releaseRoot, string tag)
     {
-        return Path.Combine(releaseRoot, SanitizePathSegment(tag), ReleaseAssetName);
+        return Path.Combine(releaseRoot, SanitizePathSegment(tag), ReleaseExecutableName);
+    }
+
+    private static void ExtractReleaseExecutableFromArchive(string archivePath, string destinationPath)
+    {
+        using var archive = ZipFile.OpenRead(archivePath);
+
+        ZipArchiveEntry? executableEntry = null;
+        foreach (var entry in archive.Entries)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Name))
+            {
+                continue;
+            }
+
+            if (string.Equals(entry.Name, ReleaseExecutableName, StringComparison.OrdinalIgnoreCase))
+            {
+                executableEntry = entry;
+                break;
+            }
+        }
+
+        if (executableEntry is null)
+        {
+            throw new InvalidDataException("Downloaded release archive does not contain a launcher executable.");
+        }
+
+        var destinationDir = Path.GetDirectoryName(destinationPath);
+        if (!string.IsNullOrWhiteSpace(destinationDir))
+        {
+            Directory.CreateDirectory(destinationDir);
+        }
+
+        using var entryStream = executableEntry.Open();
+        using var destinationStream = File.Create(destinationPath);
+        entryStream.CopyTo(destinationStream);
     }
 
     private static void CleanupOldReleaseCaches(string releaseRoot, string currentReleaseExecutablePath)
@@ -715,5 +774,8 @@ internal static class Program
         }
     }
 
-    private sealed record GitHubReleaseAsset(string Tag, string DownloadUrl);
+    private sealed record GitHubReleaseAsset(string Tag, string Name, string DownloadUrl)
+    {
+        public bool IsZipAsset => Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
+    }
 }
