@@ -119,7 +119,15 @@ public class UserApi
                 return ValourResult.Forbid("You must be a stargazer or above to change your tag.");
             }
         }
-        
+
+        // If we are changing star colors, make sure we are Stargazer Pro
+        if (user.StarColor1 != currentUser.StarColor1 || user.StarColor2 != currentUser.StarColor2)
+        {
+            if (currentUser.SubscriptionType != UserSubscriptionTypes.StargazerPro.Name)
+            {
+                return ValourResult.Forbid("You must be a Stargazer Pro subscriber to customize star colors.");
+            }
+        }
 
         var result = await userService.UpdateAsync(user);
         if (!result.Success)

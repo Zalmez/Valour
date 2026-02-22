@@ -62,7 +62,7 @@ else
                     {
                         <TooltipTrigger>
                             <ChildContent>
-                                <img alt="Stargazer badge" class="dot-badge" src="_content/Valour.Client/media/stargazer-badge.svg" />
+                                <img alt="Stargazer badge" class="dot-badge" src="@StarBadge.GetDataUri(_user.Id, _user.GetStarColor1(), _user.GetStarColor2())" />
                             </ChildContent>
                             <TooltipContent>
                                 <span>Stargazer</span>

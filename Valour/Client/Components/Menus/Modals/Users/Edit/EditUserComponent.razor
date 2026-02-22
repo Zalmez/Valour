@@ -1,4 +1,4 @@
-﻿@using Valour.Client.Components.Windows.ModTools
+@using Valour.Client.Components.Windows.ModTools
 @using Valour.Client.Components.Staff
 @inherits Modal<EditUserComponent.ModalParams>
 @inject NavigationManager NavManager
@@ -16,11 +16,10 @@
 <MainMenuComponent DefaultCategory="@Data.StartCategory" DefaultItem="@Data.StartItem" MenuCategories="@_categories"  />
 
 @code {
-    
+
     [CascadingParameter]
     public BrowserUtils DomWindow { get; set; }
-    
-    private RenderFragment InfoContent => @<EditUserInfoComponent User="@Data.User" />;
+
     private RenderFragment ProfileContent => @<EditProfileComponent />;
     private RenderFragment FriendsContent => @<EditFriendsComponent />;
     private RenderFragment SafetyContent => @<EditSafetyComponent />;
@@ -29,7 +28,7 @@
     private RenderFragment ReferralsContent => @<EditReferralsComponent />;
     private RenderFragment NotificationsContent => @<EditUserNotificationsComponent />;
     private RenderFragment DevicePreferencesContent => @<EditDevicePreferencesComponent />;
-    private RenderFragment SessionsContent => @<EditSessionsComponent />;
+    private RenderFragment SecurityContent => @<EditSessionsComponent />;
     private RenderFragment LogOutContent => @<div></div>;
     private RenderFragment OAuthContent => @<EditOAuthComponent />;
     private RenderFragment BotsContent => @<BotManagementComponent />;
@@ -52,7 +51,7 @@
     private readonly string[] _staffTabs = new[] { "Members", "Reports", "Verify", "Email Users" };
 
     private List<MainMenu.MenuCategory> _categories;
-    
+
     private List<MainMenu.MenuCategory> BuildCategories() =>
         new List<MainMenu.MenuCategory>()
         {
@@ -64,16 +63,9 @@
                 {
                     new MainMenu.MenuItem()
                     {
-                        Name = "Info",
-                        Icon = "info-circle-fill",
-                        Description = "Edit basic account information",
-                        Content = InfoContent
-                    },
-                    new MainMenu.MenuItem()
-                    {
                         Name = "Profile",
                         Icon = "person-fill",
-                        Description = "Customize your profile in style",
+                        Description = "Edit your profile, avatar, and appearance",
                         Content = ProfileContent
                     },
                     new MainMenu.MenuItem()
@@ -127,10 +119,10 @@
                     },
                     new MainMenu.MenuItem()
                     {
-                        Name = "Sessions",
+                        Name = "Security",
                         Icon = "shield-lock-fill",
-                        Description = "Manage active login sessions",
-                        Content = SessionsContent
+                        Description = "MFA, password, and active sessions",
+                        Content = SecurityContent
                     },
                     new MainMenu.MenuItem()
                     {
@@ -173,6 +165,18 @@
             || string.Equals(Data.StartItem, "Notification Options", StringComparison.OrdinalIgnoreCase))
         {
             Data.StartItem = "Notifications";
+        }
+
+        // "Info" was merged into "Profile"
+        if (string.Equals(Data.StartItem, "Info", StringComparison.OrdinalIgnoreCase))
+        {
+            Data.StartItem = "Profile";
+        }
+
+        // "Sessions" was merged into "Security"
+        if (string.Equals(Data.StartItem, "Sessions", StringComparison.OrdinalIgnoreCase))
+        {
+            Data.StartItem = "Security";
         }
 
         _categories = BuildCategories();

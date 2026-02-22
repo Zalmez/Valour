@@ -134,6 +134,16 @@ public class User : ClientModel<User, long>, ISharedUser, IMessageAuthor
     public long? OwnerId { get; set; }
 
     /// <summary>
+    /// The first gradient color for the stargazer badge.
+    /// </summary>
+    public string StarColor1 { get; set; }
+
+    /// <summary>
+    /// The second gradient color for the stargazer badge.
+    /// </summary>
+    public string StarColor2 { get; set; }
+
+    /// <summary>
     /// The subscription the user currently has
     /// </summary>
     [JsonIgnore]
@@ -168,10 +178,43 @@ public class User : ClientModel<User, long>, ISharedUser, IMessageAuthor
     public string GetFailedAvatar() =>
         ISharedUser.GetFailedAvatar(this);
     
-    public bool HasStargazer => 
+    public bool HasStargazer =>
         SubscriptionType == UserSubscriptionTypes.Stargazer.Name ||
         SubscriptionType == UserSubscriptionTypes.StargazerPlus.Name ||
         SubscriptionType == UserSubscriptionTypes.StargazerPro.Name;
+
+    public bool HasStargazerPro =>
+        SubscriptionType == UserSubscriptionTypes.StargazerPro.Name;
+
+    public string GetStarColor1()
+    {
+        if (SubscriptionType == UserSubscriptionTypes.Stargazer.Name)
+            return "#C0C0C0";
+
+        if (HasStargazerPro && StarColor1 is not null)
+            return StarColor1;
+
+        // Plus/Pro default
+        if (HasStargazer)
+            return "#00faff";
+
+        return "#C0C0C0";
+    }
+
+    public string GetStarColor2()
+    {
+        if (SubscriptionType == UserSubscriptionTypes.Stargazer.Name)
+            return "#808080";
+
+        if (HasStargazerPro && StarColor2 is not null)
+            return StarColor2;
+
+        // Plus/Pro default
+        if (HasStargazer)
+            return "#bf06fd";
+
+        return "#808080";
+    }
 
     public override User AddToCache(ModelInsertFlags flags = ModelInsertFlags.None)
     {

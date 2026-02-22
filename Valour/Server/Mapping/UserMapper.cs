@@ -28,7 +28,9 @@ public static class UserMapper
             NameChangeTime = user.NameChangeTime,
             Version = user.Version,
             TutorialState = user.TutorialState,
-            OwnerId = user.OwnerId
+            OwnerId = user.OwnerId,
+            StarColor1 = user.StarColor1,
+            StarColor2 = user.StarColor2
         };
     }
 
@@ -36,7 +38,7 @@ public static class UserMapper
     {
         if (user is null)
             return null;
-        
+
         return new Valour.Database.User()
         {
             Id = user.Id,
@@ -58,7 +60,9 @@ public static class UserMapper
             NameChangeTime = user.NameChangeTime,
             Version = user.Version,
             TutorialState = user.TutorialState,
-            OwnerId = user.OwnerId
+            OwnerId = user.OwnerId,
+            StarColor1 = user.StarColor1,
+            StarColor2 = user.StarColor2
         };
     }
 }

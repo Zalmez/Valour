@@ -142,6 +142,18 @@ public interface  ISharedUser : ISharedModel<long>
     public long? OwnerId { get; set; }
 
     /// <summary>
+    /// The first gradient color for the stargazer badge.
+    /// Only customizable by Stargazer Pro subscribers.
+    /// </summary>
+    public string StarColor1 { get; set; }
+
+    /// <summary>
+    /// The second gradient color for the stargazer badge.
+    /// Only customizable by Stargazer Pro subscribers.
+    /// </summary>
+    public string StarColor2 { get; set; }
+
+    /// <summary>
     /// The subscription the user currently has
     /// </summary>
     public static UserSubscriptionType GetSubscription(ISharedUser user)

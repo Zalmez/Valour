@@ -106,6 +106,16 @@ public class User : ServerModel<long>, ISharedUser
     public long? OwnerId { get; set; }
 
     /// <summary>
+    /// The first gradient color for the stargazer badge.
+    /// </summary>
+    public string StarColor1 { get; set; }
+
+    /// <summary>
+    /// The second gradient color for the stargazer badge.
+    /// </summary>
+    public string StarColor2 { get; set; }
+
+    /// <summary>
     /// The subscription the user currently has
     /// </summary>
     [JsonIgnore]
