@@ -21,6 +21,11 @@ dotnet publish Valour/Client.Blazor/Valour.Client.Blazor.csproj -c Release -o "$
 mkdir -p "$OUTPUT_DIR"
 cp -R "$PUBLISH_DIR"/wwwroot/. "$OUTPUT_DIR"/
 
+# Ensure referenced Razor Class Library assets exist at the expected static-web-assets path.
+# In this project, the host page references `_content/Valour.Client/...` directly.
+mkdir -p "$OUTPUT_DIR"/_content/Valour.Client
+cp -R Valour/Client/wwwroot/. "$OUTPUT_DIR"/_content/Valour.Client/
+
 # The Blazor host page currently lives in the shared Valour.Client project, not Client.Blazor/wwwroot.
 # Ensure Cloudflare Pages has a root index.html to serve.
 cp Valour/Client/wwwroot/index.html "$OUTPUT_DIR"/index.html
