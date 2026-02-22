@@ -340,7 +340,11 @@ public partial class App : MauiWinUIApplication
     {
         private readonly Action _execute;
         public RelayCommand(Action execute) => _execute = execute;
-        public event EventHandler? CanExecuteChanged;
+        public event EventHandler? CanExecuteChanged
+        {
+            add { }
+            remove { }
+        }
         public bool CanExecute(object? parameter) => true;
         public void Execute(object? parameter) => _execute();
     }
@@ -403,12 +407,11 @@ public partial class App : MauiWinUIApplication
                         continue;
                     }
 
-                    SentrySdk.WithScope(scope =>
+                    SentrySdk.CaptureException(inner, scope =>
                     {
                         scope.SetTag("exception_source", "taskscheduler.unobserved");
                         scope.SetExtra("aggregate_exception_type", aggregate?.GetType().FullName ?? "unknown");
                         scope.SetExtra("aggregate_exception_message", aggregate?.Message ?? string.Empty);
-                        SentrySdk.CaptureException(inner);
                     });
                 }
             }
