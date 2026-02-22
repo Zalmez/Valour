@@ -199,6 +199,7 @@
     private bool _pendingReactionEmojiRefresh;
     
     private bool _loading = true;
+    private bool _disposed;
 
     [Parameter]
     public bool Embedded { get; set; }
@@ -481,8 +482,11 @@
         });
     }
 
-    public virtual async Task OnReceiveMessage(Message message)
+    public virtual async Task OnReceiveMessage(Message? message)
     {
+        if (_disposed || message is null || Channel is null)
+            return;
+
         // Ignore messages not meant for this channel
         if (message.ChannelId != Channel.Id)
             return;
@@ -512,8 +516,11 @@
         });
     }
     
-    public virtual async Task OnReceiveMessageEdit(Message message)
+    public virtual async Task OnReceiveMessageEdit(Message? message)
     {
+        if (_disposed || message is null || Channel is null)
+            return;
+
         // Ignore messages not meant for this channel
         if (message.ChannelId != Channel.Id)
             return;
@@ -872,15 +879,18 @@
         }
     }
 
-    public async Task AddMessage(Message message, bool render = true)
+    public async Task AddMessage(Message? message, bool render = true)
     {
+        if (_disposed || message is null)
+            return;
+
         if (IsBlockedMessage(message))
             return;
 
         StripBlockedReplyPreview(message);
 
         //Get current window scroll pos
-        var atBottom = await _jsService.InvokeAsync<bool>("isAtBottom");
+        var atBottom = _jsService is not null && await _jsService.InvokeAsync<bool>("isAtBottom");
 
         // Remove the matching ghost BEFORE rendering so the ghost removal and
         // real message insertion appear in the same render frame with no gap.
@@ -941,8 +951,11 @@
     
     // Events
     
-    public async Task OnDeleteMessage(Message message)
+    public async Task OnDeleteMessage(Message? message)
     {
+        if (_disposed || message is null)
+            return;
+
         await InvokeAsync(async () =>
         {
             DisplayedMessages.RemoveAll(x => x.Id == message.Id);
@@ -980,21 +993,48 @@
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask ScrollToBottomAnimated() => _jsService.InvokeVoidAsync("scrollToBottomAnimated");
+    public ValueTask ScrollToBottomAnimated()
+    {
+        if (_jsService is null)
+            return ValueTask.CompletedTask;
 
-    public ValueTask UpdateScrollPosition() => _jsService.InvokeVoidAsync("updateScrollPosition");
+        return _jsService.InvokeVoidAsync("scrollToBottomAnimated");
+    }
 
-    public ValueTask ScaleScrollPosition() => _jsService.InvokeVoidAsync("scaleScrollPosition");
+    public ValueTask UpdateScrollPosition()
+    {
+        if (_jsService is null)
+            return ValueTask.CompletedTask;
+
+        return _jsService.InvokeVoidAsync("updateScrollPosition");
+    }
+
+    public ValueTask ScaleScrollPosition()
+    {
+        if (_jsService is null)
+            return ValueTask.CompletedTask;
+
+        return _jsService.InvokeVoidAsync("scaleScrollPosition");
+    }
 
     public ValueTask ShiftScrollPosition(float amount)
     {
         if (SuppressAutoScroll)
             return ValueTask.CompletedTask;
 
+        if (_jsService is null)
+            return ValueTask.CompletedTask;
+
         return _jsService.InvokeVoidAsync("shiftScrollPosition", amount);
     }
 
-    public ValueTask ScrollToMessage(long messageId, bool highlight = false) => _jsService.InvokeVoidAsync("scrollToMessage", $"m-{Channel.Id}-{messageId}", highlight);
+    public ValueTask ScrollToMessage(long messageId, bool highlight = false)
+    {
+        if (_jsService is null || Channel is null)
+            return ValueTask.CompletedTask;
+
+        return _jsService.InvokeVoidAsync("scrollToMessage", $"m-{Channel.Id}-{messageId}", highlight);
+    }
 
     [JSInvokable("OnScrollBottomInvoke")]
     public async Task OnScrollBottom()
@@ -1350,6 +1390,8 @@
     
     async ValueTask IAsyncDisposable.DisposeAsync()
     {
+        _disposed = true;
+
         if (Channel is null)
             return;
 

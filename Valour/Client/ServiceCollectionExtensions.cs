@@ -31,7 +31,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<SoundManager>();
         services.AddSingleton<ContextMenuService>();
         services.AddSingleton<INativeWindowService, NoopNativeWindowService>();
-        services.AddSingleton<RealtimeKitDeviceService>();
+        services.AddScoped<RealtimeKitDeviceService>();
 
         // new services
         services.AddSingleton(client);

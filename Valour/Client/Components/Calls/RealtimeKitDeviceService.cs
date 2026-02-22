@@ -14,10 +14,28 @@ public sealed class RealtimeKitDeviceService : IAsyncDisposable
         _jsRuntime = jsRuntime;
     }
 
+    private Task<IJSObjectReference> ImportModuleAsync()
+    {
+        return _jsRuntime.InvokeAsync<IJSObjectReference>("import", ModulePath).AsTask();
+    }
+
     private async Task<IJSObjectReference> GetModuleAsync()
     {
-        _moduleTask ??= _jsRuntime.InvokeAsync<IJSObjectReference>("import", ModulePath).AsTask();
-        return await _moduleTask;
+        if (_moduleTask is null || _moduleTask.IsFaulted || _moduleTask.IsCanceled)
+        {
+            _moduleTask = ImportModuleAsync();
+        }
+
+        try
+        {
+            return await _moduleTask;
+        }
+        catch
+        {
+            // Don't permanently cache failed imports; allow retry when WebView context is ready.
+            _moduleTask = null;
+            throw;
+        }
     }
 
     public async Task<InputMic[]> GetAudioInputDevicesAsync()

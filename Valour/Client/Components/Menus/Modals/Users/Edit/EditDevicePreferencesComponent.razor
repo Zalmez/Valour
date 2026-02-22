@@ -138,6 +138,7 @@
     private bool _isLoadingCameras;
     private bool _isRequestingMicPermission;
     private bool _isRequestingCameraPermission;
+    private bool _hasInitializedDeviceLists;
     private bool _errorReportingEnabled = DevicePreferences.ErrorReportingEnabled;
 
     private bool ShouldShowMicPermissionButton =>
@@ -158,6 +159,14 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadErrorReportingStateAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _hasInitializedDeviceLists)
+            return;
+
+        _hasInitializedDeviceLists = true;
         await RefreshMicsAsync();
         await RefreshCamerasAsync();
     }
