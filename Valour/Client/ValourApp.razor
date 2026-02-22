@@ -75,7 +75,13 @@ else
             // Host page does not expose a host mode marker.
         }
 
-        if (hostMode != "hybrid")
+        var isLocalWebViewOrigin =
+            string.Equals(uriData.Hostname, "0.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(uriData.Hostname, "0.0.0.0", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(uriData.Hostname, "127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(uriData.Hostname, "localhost", StringComparison.OrdinalIgnoreCase);
+
+        if (hostMode != "hybrid" && !isLocalWebViewOrigin)
         {
             if (!USE_PROD)
             {
@@ -101,6 +107,10 @@ else
             {
                 Client.SetOrigin("https://app.valour.gg/");
             }
+        }
+        else
+        {
+            Logger.Log("App", $"Using native/default API origin (hostMode={hostMode}, hostname={uriData.Hostname})", "magenta");
         }
 
         _ = JsRuntime.InvokeAsync<object>(

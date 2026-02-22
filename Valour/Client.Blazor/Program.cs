@@ -27,7 +27,8 @@ public class Program
         
         builder.Services.AddSingleton<IAppStorage, BrowserStorageService>();
         builder.Services.AddSingleton<IPushNotificationService, BrowserPushNotificationService>();
-        builder.Services.AddValourClientServices("https://app.valour.gg");
+        // Default to the API host. Web deploys can override at runtime via valour-runtime-config.js.
+        builder.Services.AddValourClientServices("https://api.valour.gg");
         
         var host = builder.Build();
         await host.RunAsync();
