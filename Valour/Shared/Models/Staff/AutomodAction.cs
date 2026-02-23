@@ -73,4 +73,10 @@ public interface ISharedAutomodAction
     /// The message to send to the chat, if applicable
     /// </summary>
     public string Message { get; set; }
+
+    /// <summary>
+    /// The channel to send the response in. If null, uses automatic behavior
+    /// (same channel as trigger for messages, primary channel for joins).
+    /// </summary>
+    public long? ResponseChannelId { get; set; }
 }

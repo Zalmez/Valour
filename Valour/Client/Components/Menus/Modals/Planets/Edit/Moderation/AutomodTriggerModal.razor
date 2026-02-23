@@ -23,14 +23,29 @@
                     <input class="form-control" @bind="TriggerWords" @bind:event="oninput" />
                 </div>
             }
+            @if (ShowSpamOptions)
+            {
+                <div class="form-group">
+                    <label>Spam Message Count</label>
+                    <InputNumber class="form-control" TValue="int" @bind-Value="SpamMessageCount" />
+                </div>
+                <div class="form-group">
+                    <label>Spam Time Window (seconds)</label>
+                    <InputNumber class="form-control" TValue="int" @bind-Value="SpamWindowSeconds" />
+                </div>
+            }
             <div class="form-group">
                 <label>Type</label>
                 <select class="form-control" @bind="TriggerType" >
                     @foreach (AutomodTriggerType t in Enum.GetValues<AutomodTriggerType>())
                     {
-                        <option value="@t">@t</option>
+                        <option value="@t">@GetTriggerTypeLabel(t)</option>
                     }
                 </select>
+            </div>
+            <div class="form-group">
+                <label><input type="checkbox" @bind="RunForEveryone" /> Run for everyone</label>
+                <p class="desc">When enabled, this trigger will not allow anyone to bypass it.</p>
             </div>
         }
         else if (_step == 2)
@@ -217,10 +232,25 @@
             if (_trigger.Type != value)
             {
                 _trigger.Type = value;
+                ParseSpamOptionsFromTrigger();
                 _changed = true;
             }
         }
     }
+
+    private bool RunForEveryone
+    {
+        get => _trigger.RunForEveryone;
+        set
+        {
+            if (_trigger.RunForEveryone != value)
+            {
+                _trigger.RunForEveryone = value;
+                _changed = true;
+            }
+        }
+    }
+
     private ITaskResult _result;
     private int _step = 1;
 
@@ -258,12 +288,52 @@
     private bool ShowTriggerWords =>
         _trigger.Type == AutomodTriggerType.Blacklist || _trigger.Type == AutomodTriggerType.Command;
 
+    private bool ShowSpamOptions => _trigger.Type == AutomodTriggerType.Spam;
+
     private string TriggerWordsLabel => _trigger.Type switch
     {
         AutomodTriggerType.Blacklist => "Trigger Words (comma separated)",
         AutomodTriggerType.Command => "Command Name",
         _ => string.Empty
     };
+
+    private static string GetTriggerTypeLabel(AutomodTriggerType type) => type switch
+    {
+        AutomodTriggerType.Blacklist => "Trigger Words",
+        AutomodTriggerType.Spam => "Spam",
+        AutomodTriggerType.Join => "Member Join",
+        AutomodTriggerType.Command => "Command",
+        _ => type.ToString()
+    };
+
+    private int _spamMessageCount = 5;
+    private int _spamWindowSeconds = 10;
+
+    private int SpamMessageCount
+    {
+        get => _spamMessageCount;
+        set
+        {
+            if (_spamMessageCount != value)
+            {
+                _spamMessageCount = value;
+                _changed = true;
+            }
+        }
+    }
+
+    private int SpamWindowSeconds
+    {
+        get => _spamWindowSeconds;
+        set
+        {
+            if (_spamWindowSeconds != value)
+            {
+                _spamWindowSeconds = value;
+                _changed = true;
+            }
+        }
+    }
 
     protected override void OnInitialized()
     {
@@ -278,6 +348,8 @@
             _trigger = new AutomodTrigger(Client) { PlanetId = Data.Planet.Id };
             _newActions = new();
         }
+
+        ParseSpamOptionsFromTrigger();
 
         _changed = false;
 
@@ -319,6 +391,13 @@
 
     private async Task OnSave()
     {
+        if (ShowSpamOptions)
+        {
+            _spamMessageCount = Math.Clamp(_spamMessageCount, 2, 50);
+            _spamWindowSeconds = Math.Clamp(_spamWindowSeconds, 1, 300);
+            _trigger.TriggerWords = $"{_spamMessageCount},{_spamWindowSeconds}";
+        }
+
         TaskResult<AutomodTrigger> res;
         if (_isNew)
         {
@@ -437,6 +516,19 @@
     private void RemoveNewAction(AutomodAction action)
     {
         _newActions.Remove(action);
+    }
+
+    private void ParseSpamOptionsFromTrigger()
+    {
+        if (_trigger.Type != AutomodTriggerType.Spam || string.IsNullOrWhiteSpace(_trigger.TriggerWords))
+            return;
+
+        var parts = _trigger.TriggerWords.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 1 && int.TryParse(parts[0], out var count))
+            _spamMessageCount = Math.Clamp(count, 2, 50);
+
+        if (parts.Length >= 2 && int.TryParse(parts[1], out var seconds))
+            _spamWindowSeconds = Math.Clamp(seconds, 1, 300);
     }
 
 }

@@ -18,6 +18,9 @@ public class RealtimeKitInitOptions
 
     [JsonPropertyName("cachedUserDetails")]
     public RealtimeKitCachedUserDetails? CachedUserDetails { get; set; }
+
+    [JsonPropertyName("overrides")]
+    public RealtimeKitOverrides? Overrides { get; set; }
 }
 
 public class RealtimeKitMediaDefaults
@@ -27,6 +30,84 @@ public class RealtimeKitMediaDefaults
 
     [JsonPropertyName("video")]
     public bool? Video { get; set; }
+
+    [JsonPropertyName("mediaConfiguration")]
+    public RealtimeKitMediaConfiguration? MediaConfiguration { get; set; }
+}
+
+public class RealtimeKitMediaConfiguration
+{
+    [JsonPropertyName("audio")]
+    public RealtimeKitAudioMediaConfiguration? Audio { get; set; }
+
+    [JsonPropertyName("video")]
+    public RealtimeKitVideoMediaConfiguration? Video { get; set; }
+}
+
+public class RealtimeKitAudioMediaConfiguration
+{
+    [JsonPropertyName("enableStereo")]
+    public bool? EnableStereo { get; set; }
+
+    [JsonPropertyName("enableHighBitrate")]
+    public bool? EnableHighBitrate { get; set; }
+}
+
+public class RealtimeKitVideoMediaConfiguration
+{
+    [JsonPropertyName("width")]
+    public RealtimeKitNumericConstraint? Width { get; set; }
+
+    [JsonPropertyName("height")]
+    public RealtimeKitNumericConstraint? Height { get; set; }
+
+    [JsonPropertyName("frameRate")]
+    public RealtimeKitNumericConstraint? FrameRate { get; set; }
+}
+
+public class RealtimeKitNumericConstraint
+{
+    [JsonPropertyName("ideal")]
+    public double? Ideal { get; set; }
+
+    [JsonPropertyName("max")]
+    public double? Max { get; set; }
+
+    [JsonPropertyName("min")]
+    public double? Min { get; set; }
+}
+
+public class RealtimeKitOverrides
+{
+    [JsonPropertyName("simulcastConfig")]
+    public RealtimeKitSimulcastConfig? SimulcastConfig { get; set; }
+}
+
+public class RealtimeKitSimulcastConfig
+{
+    [JsonPropertyName("disable")]
+    public bool? Disable { get; set; }
+
+    [JsonPropertyName("encodings")]
+    public RealtimeKitSimulcastEncoding[]? Encodings { get; set; }
+}
+
+public class RealtimeKitSimulcastEncoding
+{
+    [JsonPropertyName("rid")]
+    public string Rid { get; set; } = string.Empty;
+
+    [JsonPropertyName("scaleResolutionDownBy")]
+    public double? ScaleResolutionDownBy { get; set; }
+
+    [JsonPropertyName("maxBitrate")]
+    public int? MaxBitrate { get; set; }
+
+    [JsonPropertyName("maxFramerate")]
+    public int? MaxFramerate { get; set; }
+
+    [JsonPropertyName("scalabilityMode")]
+    public string? ScalabilityMode { get; set; }
 }
 
 public class RealtimeKitModules
@@ -126,6 +207,24 @@ public class RealtimeKitParticipantState
 
     [JsonPropertyName("audioTrackId")]
     public string? AudioTrackId { get; set; }
+
+    [JsonPropertyName("hasVideoTrack")]
+    public bool HasVideoTrack { get; set; }
+
+    [JsonPropertyName("videoTrackId")]
+    public string? VideoTrackId { get; set; }
+
+    [JsonPropertyName("hasScreenShareTrack")]
+    public bool HasScreenShareTrack { get; set; }
+
+    [JsonPropertyName("screenShareTrackId")]
+    public string? ScreenShareTrackId { get; set; }
+
+    [JsonPropertyName("hasScreenShareAudioTrack")]
+    public bool HasScreenShareAudioTrack { get; set; }
+
+    [JsonPropertyName("screenShareAudioTrackId")]
+    public string? ScreenShareAudioTrackId { get; set; }
 
     [JsonPropertyName("isSelf")]
     public bool IsSelf { get; set; }

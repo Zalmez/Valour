@@ -12,6 +12,8 @@ public class VoiceSignallingApi
         app.MapPost("api/voice/realtimekit/channels/{channelId:long}/participants/{targetUserId:long}/mute", MuteParticipant);
         app.MapPost("api/voice/realtimekit/channels/{channelId:long}/participants/{targetUserId:long}/unmute", UnmuteParticipant);
         app.MapPost("api/voice/realtimekit/channels/{channelId:long}/participants/{targetUserId:long}/kick", KickParticipant);
+        app.MapPost("api/voice/realtimekit/channels/{channelId:long}/leave", LeaveVoiceChannel);
+        app.MapPost("api/voice/realtimekit/heartbeat", VoiceHeartbeat);
     }
 
     public static async Task<IResult> GetRealtimeKitToken(
@@ -20,6 +22,7 @@ public class VoiceSignallingApi
         PlanetMemberService memberService,
         CoreHubService coreHubService,
         RealtimeKitService realtimeKitService,
+        VoiceStateService voiceStateService,
         long channelId,
         string? sessionId)
     {
@@ -31,10 +34,10 @@ public class VoiceSignallingApi
         if (dbChannel is null || !ISharedChannel.VoiceChannelTypes.Contains(dbChannel.ChannelType))
             return ValourResult.NotFound("Channel does not exist.");
 
-        // Planet voice is the only supported type in this migration pass.
-        if (dbChannel.ChannelType != ChannelTypeEnum.PlanetVoice || dbChannel.PlanetId is null)
+        // Planet call channels are currently supported for RealtimeKit.
+        if (!ISharedChannel.IsPlanetCallType(dbChannel.ChannelType) || dbChannel.PlanetId is null)
         {
-            return ValourResult.BadRequest("RealtimeKit voice currently supports only planet voice channels.");
+            return ValourResult.BadRequest("RealtimeKit currently supports only planet voice or video channels.");
         }
 
         var channel = dbChannel.ToModel();
@@ -57,19 +60,38 @@ public class VoiceSignallingApi
 
         var displayName = $"{dbUser.Name}#{dbUser.Tag}";
         TaskResult<RealtimeKitVoiceTokenResponse> tokenResult =
-            await realtimeKitService.CreateParticipantTokenAsync(channel, authToken.UserId, displayName);
+            await realtimeKitService.CreateParticipantTokenAsync(channel, authToken.UserId, displayName, sessionId);
 
         if (!tokenResult.Success || tokenResult.Data is null)
         {
             return ValourResult.BadRequest(tokenResult.Message);
         }
 
-        if (!string.IsNullOrWhiteSpace(sessionId))
+        // Track voice state in Redis + HostedPlanet
+        var previousChannelId = await voiceStateService.UserJoinVoiceChannelAsync(
+            authToken.UserId, channelId, dbChannel.PlanetId.Value, sessionId);
+
+        // Server-side enforcement/backstop: ensure stale RTK media from a previous channel is torn down
+        // before returning the new token response.
+        if (previousChannelId.HasValue && previousChannelId.Value != channelId)
+        {
+            await realtimeKitService.KickUserFromTrackedChannelAsync(previousChannelId.Value, authToken.UserId);
+        }
+
+        // Always send session replace for this channel to eject any stale RTK peers
+        coreHubService.NotifyVoiceSessionReplace(authToken.UserId, new VoiceSessionReplaceEvent
+        {
+            ChannelId = channel.Id,
+            SessionId = sessionId ?? string.Empty
+        });
+
+        // If user was in a different channel, also eject them from the old channel
+        if (previousChannelId.HasValue && previousChannelId.Value != channelId)
         {
             coreHubService.NotifyVoiceSessionReplace(authToken.UserId, new VoiceSessionReplaceEvent
             {
-                ChannelId = channel.Id,
-                SessionId = sessionId
+                ChannelId = previousChannelId.Value,
+                SessionId = sessionId ?? string.Empty
             });
         }
 
@@ -147,6 +169,7 @@ public class VoiceSignallingApi
         TokenService tokenService,
         PlanetMemberService memberService,
         NodeLifecycleService nodeLifecycleService,
+        VoiceStateService voiceStateService,
         long channelId,
         long targetUserId)
     {
@@ -172,6 +195,61 @@ public class VoiceSignallingApi
                 Action = VoiceModerationActionType.Kick
             });
 
+        // Remove kicked user from voice state
+        var dbChannel = await db.Channels.FindAsync(channelId);
+        if (dbChannel?.PlanetId is not null)
+        {
+            await voiceStateService.UserLeaveVoiceChannelAsync(
+                targetUserId, channelId, dbChannel.PlanetId.Value);
+        }
+
+        return Results.Ok();
+    }
+
+    public static async Task<IResult> LeaveVoiceChannel(
+        ValourDb db,
+        TokenService tokenService,
+        PlanetMemberService memberService,
+        RealtimeKitService realtimeKitService,
+        VoiceStateService voiceStateService,
+        long channelId,
+        string? sessionId)
+    {
+        var authToken = await tokenService.GetCurrentTokenAsync();
+        if (authToken is null)
+            return ValourResult.InvalidToken();
+
+        var dbChannel = await db.Channels.FindAsync(channelId);
+        if (dbChannel is null || !ISharedChannel.VoiceChannelTypes.Contains(dbChannel.ChannelType))
+            return ValourResult.NotFound("Channel does not exist.");
+
+        if (!ISharedChannel.IsPlanetCallType(dbChannel.ChannelType) || dbChannel.PlanetId is null)
+            return ValourResult.BadRequest("Only planet voice/video channels are supported.");
+
+        var member = await memberService.GetByUserAsync(authToken.UserId, dbChannel.PlanetId.Value);
+        if (member is null)
+            return ValourResult.NotPlanetMember();
+
+        await voiceStateService.UserLeaveVoiceChannelAsync(
+            authToken.UserId, channelId, dbChannel.PlanetId.Value, sessionId);
+
+        // Best-effort exact RTK teardown. With session-aware participant IDs this avoids
+        // stale leave calls kicking a newer session from another window.
+        await realtimeKitService.KickUserSessionFromTrackedChannelAsync(channelId, authToken.UserId, sessionId);
+
+        return Results.Ok();
+    }
+
+    public static async Task<IResult> VoiceHeartbeat(
+        TokenService tokenService,
+        VoiceStateService voiceStateService)
+    {
+        var authToken = await tokenService.GetCurrentTokenAsync();
+        if (authToken is null)
+            return ValourResult.InvalidToken();
+
+        await voiceStateService.RefreshVoiceHeartbeatAsync(authToken.UserId);
+
         return Results.Ok();
     }
 
@@ -191,10 +269,10 @@ public class VoiceSignallingApi
         if (dbChannel is null || !ISharedChannel.VoiceChannelTypes.Contains(dbChannel.ChannelType))
             return VoiceModerationValidationResult.FromError(ValourResult.NotFound("Channel does not exist."));
 
-        if (dbChannel.ChannelType != ChannelTypeEnum.PlanetVoice || dbChannel.PlanetId is null)
+        if (!ISharedChannel.IsPlanetCallType(dbChannel.ChannelType) || dbChannel.PlanetId is null)
         {
             return VoiceModerationValidationResult.FromError(
-                ValourResult.BadRequest("Voice moderation currently supports only planet voice channels."));
+                ValourResult.BadRequest("Voice moderation currently supports only planet voice or video channels."));
         }
 
         var channel = dbChannel.ToModel();

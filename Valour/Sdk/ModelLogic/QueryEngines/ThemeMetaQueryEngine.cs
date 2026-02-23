@@ -21,6 +21,8 @@ public class ThemeMetaDto
     public string AuthorName { get; set; } = string.Empty;
     public int Upvotes { get; set; }
     public int Downvotes { get; set; }
+    public bool? MySentiment { get; set; }
+    public long? MyVoteId { get; set; }
 }
 
 public class ThemeMetaQueryEngine
@@ -165,7 +167,9 @@ public class ThemeMetaQueryEngine
             PastelCyan = serverMeta.PastelCyan,
             AuthorName = serverMeta.AuthorName,
             Upvotes = serverMeta.Upvotes,
-            Downvotes = serverMeta.Downvotes
+            Downvotes = serverMeta.Downvotes,
+            MySentiment = serverMeta.MySentiment,
+            MyVoteId = serverMeta.MyVoteId
         }).ToList();
 
         return new QueryResponse<Valour.Sdk.Models.Themes.ThemeMeta>()

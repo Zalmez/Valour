@@ -15,6 +15,7 @@ public class AutomodTrigger : ClientPlanetModel<AutomodTrigger, Guid>, ISharedAu
     public AutomodTriggerType Type { get; set; }
     public string Name { get; set; }
     public string? TriggerWords { get; set; }
+    public bool RunForEveryone { get; set; }
 
     [JsonConstructor]
     private AutomodTrigger() : base() { }

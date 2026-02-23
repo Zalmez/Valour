@@ -13,6 +13,8 @@ public enum ChannelTypeEnum
     
     GroupChat = 5,
     GroupVoice = 6,
+    
+    PlanetVideo = 7,
 }
 
 public static class SharedChannelNames
@@ -25,7 +27,8 @@ public static class SharedChannelNames
         "Direct Chat Channel",
         "Direct Voice Channel",
         "Group Chat Channel",
-        "Group Voice Channel"
+        "Group Voice Channel",
+        "Planet Video Channel"
     };
 }
 
@@ -52,7 +55,8 @@ public interface ISharedChannel : ISharedModel<long>, ISortable
     {
         ChannelTypeEnum.PlanetChat,
         ChannelTypeEnum.PlanetCategory,
-        ChannelTypeEnum.PlanetVoice
+        ChannelTypeEnum.PlanetVoice,
+        ChannelTypeEnum.PlanetVideo
     };
     
     public static readonly HashSet<ChannelTypeEnum> ChatChannelTypes = new ()
@@ -65,9 +69,24 @@ public interface ISharedChannel : ISharedModel<long>, ISortable
     public static readonly HashSet<ChannelTypeEnum> VoiceChannelTypes = new ()
     {
         ChannelTypeEnum.PlanetVoice,
+        ChannelTypeEnum.PlanetVideo,
         ChannelTypeEnum.DirectVoice,
         ChannelTypeEnum.GroupVoice
     };
+
+    public static readonly HashSet<ChannelTypeEnum> CallChannelTypes = new()
+    {
+        ChannelTypeEnum.PlanetVoice,
+        ChannelTypeEnum.PlanetVideo,
+        ChannelTypeEnum.DirectVoice,
+        ChannelTypeEnum.GroupVoice
+    };
+
+    public static bool IsPlanetCallType(ChannelTypeEnum type) =>
+        type is ChannelTypeEnum.PlanetVoice or ChannelTypeEnum.PlanetVideo;
+
+    public static ChannelTypeEnum GetPermissionTargetType(ChannelTypeEnum type) =>
+        type == ChannelTypeEnum.PlanetVideo ? ChannelTypeEnum.PlanetVoice : type;
     
     /////////////////////////////////
     // Shared between all channels //
@@ -126,4 +145,14 @@ public interface ISharedChannel : ISharedModel<long>, ISortable
     /// If this channel is the default channel
     /// </summary>
     bool IsDefault { get; set; }
+
+    /// <summary>
+    /// If this channel is marked as NSFW
+    /// </summary>
+    bool Nsfw { get; set; }
+    
+    /// <summary>
+    /// For call channels, the associated chat channel id used for integrated chat.
+    /// </summary>
+    long? AssociatedChatChannelId { get; set; }
 }

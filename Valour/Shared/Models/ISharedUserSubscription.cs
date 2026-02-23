@@ -6,47 +6,87 @@ public class UserSubscriptionType
     /// The name of the subscription type
     /// </summary>
     public string Name { get; set; }
-    
+
     /// <summary>
     /// The description of the subscription type
     /// </summary>
     public string Description { get; set; }
-    
+
     /// <summary>
     /// The monthly price of the subscription in Valour Credits
     /// </summary>
     public decimal Price { get; set; }
+
+    /// <summary>
+    /// The price in USD cents for Stripe recurring subscription
+    /// </summary>
+    public long StripePriceCents { get; set; }
+
+    /// <summary>
+    /// Monthly VC cashback reward for Stripe subscribers
+    /// </summary>
+    public int VcReward { get; set; }
+
+    /// <summary>
+    /// Maximum upload size in bytes for this subscription tier
+    /// </summary>
+    public long MaxUploadBytes { get; set; }
 }
 
 public static class UserSubscriptionTypes
 {
+    /// <summary>
+    /// Default upload limit for users without a subscription (10 MB)
+    /// </summary>
+    public const long DefaultMaxUploadBytes = 10 * 1024 * 1024;
+
     public static readonly UserSubscriptionType Stargazer = new()
     {
         Name = "Stargazer",
-        Description = "Looking above, curious yet confident. Stargazers support Valour and get access to perks like advanced profile styles.",
-        Price = 400
+        Description = "The classic! Support Valour and get access to perks like advanced profile styles.",
+        Price = 500,
+        StripePriceCents = 499,
+        VcReward = 50,
+        MaxUploadBytes = 50 * 1024 * 1024, // 50 MB
     };
-    
-    public static readonly UserSubscriptionType Pioneer = new()
+
+    public static readonly UserSubscriptionType StargazerPlus = new()
     {
-        Name = "Pioneer",
-        Description = "The next step, exploring the stars and learning. <PLACEHOLDER>",
-        Price = 800
+        Name = "Stargazer Plus",
+        Description = "A bump up for power users or those who just want to support Valour more.",
+        Price = 1000,
+        StripePriceCents = 999,
+        VcReward = 100,
+        MaxUploadBytes = 100 * 1024 * 1024, // 100 MB
     };
-    
-    public static readonly UserSubscriptionType Guardian = new()
+
+    public static readonly UserSubscriptionType StargazerPro = new()
     {
-        Name = "Guardian",
-        Description = "Respected, defending the frontier for those who follow. <PLACEHOLDER>",
-        Price = 1500
+        Name = "Stargazer Pro",
+        Description = "Our maximum perks for the most enthusiastic Valournauts!",
+        Price = 1500,
+        StripePriceCents = 1499,
+        VcReward = 150,
+        MaxUploadBytes = 250 * 1024 * 1024, // 250 MB
     };
-    
+
     public static Dictionary<string, UserSubscriptionType> TypeMap = new Dictionary<string, UserSubscriptionType>()
     {
         { "Stargazer", Stargazer },
-        { "Pioneer", Pioneer },
-        { "Guardian", Guardian }
+        { "Stargazer Plus", StargazerPlus },
+        { "Stargazer Pro", StargazerPro }
     };
+
+    /// <summary>
+    /// Returns the max upload size in bytes for a given subscription type name.
+    /// Returns DefaultMaxUploadBytes if the type is null or unknown.
+    /// </summary>
+    public static long GetMaxUploadBytes(string typeName)
+    {
+        if (typeName is not null && TypeMap.TryGetValue(typeName, out var type))
+            return type.MaxUploadBytes;
+        return DefaultMaxUploadBytes;
+    }
 }
 
 public interface ISharedUserSubscription
@@ -93,4 +133,21 @@ public interface ISharedUserSubscription
     /// How many times this subscription has been renewed
     /// </summary>
     public int Renewals { get; set; }
+
+    /// <summary>
+    /// The Stripe subscription ID, if this subscription is managed by Stripe.
+    /// Null means the subscription is VC-managed.
+    /// </summary>
+    public string StripeSubscriptionId { get; set; }
+
+    /// <summary>
+    /// True if the most recent Stripe payment attempt failed.
+    /// Reset to false when a payment succeeds.
+    /// </summary>
+    public bool StripePaymentFailed { get; set; }
+
+    /// <summary>
+    /// When set, the subscription will change to this tier at the next billing cycle (downgrade).
+    /// </summary>
+    public string PendingType { get; set; }
 }

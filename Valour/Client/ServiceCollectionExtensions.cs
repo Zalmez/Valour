@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Valour.Client.Categories;
+using Valour.Client.Components.Calls;
 using Valour.Client.Components.Sidebar.Directory;
 using Valour.Client.ContextMenu;
 using Valour.Client.Sounds;
@@ -30,6 +31,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<SoundManager>();
         services.AddSingleton<ContextMenuService>();
         services.AddSingleton<INativeWindowService, NoopNativeWindowService>();
+        services.AddScoped<RealtimeKitHostService>();
+        services.AddScoped<GlobalCallSessionService>();
+        services.AddScoped<RealtimeKitDeviceService>();
 
         // new services
         services.AddSingleton(client);
@@ -40,6 +44,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(client.AuthService);
         services.AddSingleton(client.ChannelStateService);
         services.AddSingleton(client.FriendService);
+        services.AddSingleton(client.BlockService);
         services.AddSingleton(client.MessageService);
         services.AddSingleton(client.NodeService);
         services.AddSingleton(client.PlanetService);
@@ -59,4 +64,3 @@ public static class ServiceCollectionExtensions
         return client;
     }
 }
-

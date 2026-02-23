@@ -415,6 +415,22 @@ public class UserService
         old.Status = updatedUser.Status;
         old.UserStateCode = updatedUser.UserStateCode;
 
+        // Validate and copy star colors
+        if (updatedUser.StarColor1 != old.StarColor1 || updatedUser.StarColor2 != old.StarColor2)
+        {
+            if (old.SubscriptionType != UserSubscriptionTypes.StargazerPro.Name)
+                return new TaskResult<User>(false, "Only Stargazer Pro subscribers can customize star colors.");
+
+            if (!ColorHelpers.ValidateColorCode(updatedUser.StarColor1))
+                return new TaskResult<User>(false, "Invalid star color 1.");
+
+            if (!ColorHelpers.ValidateColorCode(updatedUser.StarColor2))
+                return new TaskResult<User>(false, "Invalid star color 2.");
+
+            old.StarColor1 = updatedUser.StarColor1;
+            old.StarColor2 = updatedUser.StarColor2;
+        }
+
         // Validate tag change
         if (updatedUser.Tag != old.Tag)
         {
@@ -919,6 +935,10 @@ public class UserService
             await _db.OldPlanetRoleMembers.IgnoreQueryFilters()
                 .Where(x => x.UserId == dbUser.Id)
                 .ExecuteDeleteAsync();
+
+            // Remove member channel access records (before planet members, since access FK to members)
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"DELETE FROM member_channel_access WHERE user_id = {dbUser.Id}");
 
             // Remove planet membership
             var members = _db.PlanetMembers.IgnoreQueryFilters().Where(x => x.UserId == dbUser.Id);

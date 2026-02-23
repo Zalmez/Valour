@@ -136,7 +136,10 @@
 	
 	public static async Task ToggleSidebar()
 	{
-		await _mainSidebar._jsRef.InvokeVoidAsync("toggleOpen");
+		if (_mainSidebar is null)
+			return;
+
+		await _mainSidebar.InvokeAsync(_mainSidebar.OnOpenTabClicked);
 	}
 
 	private async Task OnOpenTabClicked()
@@ -144,6 +147,8 @@
 		if (!DeviceInfo.IsMobile)
 		{
 			_active = !_active;
+			if (_jsRef is not null)
+				await _jsRef.InvokeVoidAsync("clearInlineTransform");
 			StateHasChanged();
 		}
 		else

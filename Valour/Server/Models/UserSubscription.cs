@@ -45,4 +45,19 @@ public class UserSubscription : ISharedUserSubscription
     /// If a subscription is set to cancelled, it will not be rebilled
     /// </summary>
     public bool Cancelled { get; set; }
+
+    /// <summary>
+    /// The Stripe subscription ID, if this subscription is managed by Stripe
+    /// </summary>
+    public string StripeSubscriptionId { get; set; }
+
+    /// <summary>
+    /// True if the most recent Stripe payment attempt failed
+    /// </summary>
+    public bool StripePaymentFailed { get; set; }
+
+    /// <summary>
+    /// When set, the subscription will change to this tier at the next billing cycle (downgrade)
+    /// </summary>
+    public string PendingType { get; set; }
 }

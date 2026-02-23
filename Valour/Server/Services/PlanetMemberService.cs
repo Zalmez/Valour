@@ -293,7 +293,7 @@ public class PlanetMemberService
         }
 
         if (await _db.PlanetBans.AnyAsync(x => x.TargetId == user.Id && x.PlanetId == planet.Id &&
-                                               (x.TimeExpires != null && x.TimeExpires > DateTime.UtcNow)))
+                                               (x.TimeExpires == null || x.TimeExpires > DateTime.UtcNow)))
         {
             return new TaskResult<PlanetMember>(false, "You are banned from this planet.");
         }

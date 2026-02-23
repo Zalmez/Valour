@@ -43,11 +43,11 @@
                 <div class="name-tag">
                     <p class="username" style="color: @_roleColor" @onclick="@ShowProfileAsync">@_name</p>
                     <div class="dot-badge-holder">
-                        @if (User.SubscriptionType == UserSubscriptionTypes.Stargazer.Name)
+                        @if (User.HasStargazer)
                         {
                             <TooltipTrigger>
                                 <ChildContent>
-                                    <img alt="Stargazer badge" class="dot-badge" src="_content/Valour.Client/media/stargazer-badge.svg"/>
+                                    <img alt="Stargazer badge" class="dot-badge" src="@StarBadge.GetDataUri(User.Id, User.GetStarColor1(), User.GetStarColor2())"/>
                                 </ChildContent>
                                 <TooltipContent>
                                     <span>Stargazer</span>

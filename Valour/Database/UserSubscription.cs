@@ -51,6 +51,21 @@ namespace Valour.Database
         public int Renewals { get; set; }
 
         /// <summary>
+        /// The Stripe subscription ID, if this subscription is managed by Stripe
+        /// </summary>
+        public string StripeSubscriptionId { get; set; }
+
+        /// <summary>
+        /// True if the most recent Stripe payment attempt failed
+        /// </summary>
+        public bool StripePaymentFailed { get; set; }
+
+        /// <summary>
+        /// When set, the subscription will change to this tier at the next billing cycle (downgrade)
+        /// </summary>
+        public string PendingType { get; set; }
+
+        /// <summary>
         /// Configures the entity model for the `UserSubscription` class using fluent configuration.
         /// </summary>
         public static void SetupDbModel(ModelBuilder builder)
@@ -95,6 +110,15 @@ namespace Valour.Database
                 
                 e.Property(x => x.Renewals)
                     .HasColumnName("renewals");
+
+                e.Property(x => x.StripeSubscriptionId)
+                    .HasColumnName("stripe_subscription_id");
+
+                e.Property(x => x.StripePaymentFailed)
+                    .HasColumnName("stripe_payment_failed");
+
+                e.Property(x => x.PendingType)
+                    .HasColumnName("pending_type");
 
                 // Relationships
                 e.HasOne(x => x.User)

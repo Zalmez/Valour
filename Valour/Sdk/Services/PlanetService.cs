@@ -158,6 +158,7 @@ public class PlanetService : ServiceBase
             data.Roles.SyncAll(_client);
             data.Channels.SyncAll(_client);
             data.Emojis?.SyncAll(_client);
+            _client.VoiceStateService.SetInitialVoiceState(data.VoiceParticipants);
         }
         
         return result.WithoutData();

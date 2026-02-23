@@ -19,13 +19,13 @@
             @if (Client.Me.SubscriptionType is not null)
             {
                 <p>
-                    Your image is over the 20MB limit. You can hit the button below to compress the image. This will reduce the quality of the image, but it will make it sendable.
+                    Your image is over the @(UserSubscriptionTypes.GetMaxUploadBytes(Client.Me.SubscriptionType) / (1024 * 1024))MB limit. You can hit the button below to compress the image. This will reduce the quality of the image, but it will make it sendable.
                 </p>
             }
             else
             {
                 <p>
-                    Your image is over the 10MB limit. You can hit the button below to compress the image. This will reduce the quality of the image, but it will make it sendable. You can also subscribe to Valour Plus to increase the limit to 20MB!
+                    Your image is over the 10MB limit. You can hit the button below to compress the image. This will reduce the quality of the image, but it will make it sendable. You can also subscribe to increase your upload limit!
                 </p>
             }
         }
@@ -58,12 +58,8 @@
         _loading = true;
         StateHasChanged();
         
-        var maxSize = 10240000;
-        
-        if (Client.Me.SubscriptionType is not null)
-        {
-            maxSize = 20480000;
-        }
+        var maxBytes = UserSubscriptionTypes.GetMaxUploadBytes(Client.Me.SubscriptionType);
+        var maxSize = (int)Math.Min(maxBytes, int.MaxValue);
         
         Client.Logger.Log("[Compressor]", "Attempting to compress image...", "cyan");
 

@@ -80,6 +80,20 @@
             }
 
         </div>
+        @if (_voiceParticipants.Count > 0 && ISharedChannel.VoiceChannelTypes.Contains(Channel.ChannelType))
+        {
+            <div class="voice-participants">
+                @foreach (var userId in _voiceParticipants.Take(8))
+                {
+                    <img class="voice-participant-avatar" src="@GetUserAvatar(userId)" />
+                }
+                @if (_voiceParticipants.Count > 8)
+                {
+                    <span class="voice-participant-overflow">+@(_voiceParticipants.Count - 8)</span>
+                }
+            </div>
+        }
+
         @if (DragManager.DragOverId == Channel.Id &&
              !DragManager.DragIsTop)
         {
@@ -131,7 +145,7 @@
                 if (_children.Count > 0)
                 {
                     <div class="sub-list" ondragover="event.preventDefault();" depth="@(Depth + 1)">
-                        <div class="path str" style="height: @(GetLineLength() * 27f)px" depth="@(Depth + 1)"></div>
+                        <div class="path str" style="height: @(GetLineHeightPx())px" depth="@(Depth + 1)"></div>
                         
                         @for (int i = 0; i < _children.Count; i++)
                         {
@@ -193,6 +207,7 @@
     private List<Channel> _children = new();
     private bool _isOpen;
     private int _notificationCount;
+    private List<long> _voiceParticipants = new();
     
     protected override void OnInitialized()
     {
@@ -215,6 +230,8 @@
         ChannelStateService.ChannelStateUpdated += OnChannelStateUpdate;
         ChannelStateService.UserChannelStateUpdated += OnUserChannelStateUpdate;
 
+        Client.VoiceStateService.VoiceParticipantsChanged += OnVoiceParticipantsChanged;
+
         BuildSelf();
     }
 
@@ -236,6 +253,7 @@
         BuildChildren();
         DetermineNotifications();
         DetermineUnread();
+        LoadVoiceParticipants();
         Refresh();
     }
     
@@ -251,17 +269,34 @@
         RefreshParentsRecursive();
     }
 
-    private int GetLineLength()
+    private float GetLineHeightPx()
     {
         var lastDirectDescendant = Planet.Channels.LastOrDefault(x => x.ParentId == Channel.Id);
-        
+
         if (lastDirectDescendant is null)
             return 0;
-        
-        // Now count how many channels are after this and before the last direct descendant
-        var count = Planet.Channels.Count(x => x.RawPosition > Channel.RawPosition && x.RawPosition < lastDirectDescendant.RawPosition && PlanetComponent.GetVisible(x));
 
-        return count;
+        // Count visible channels between this category and the last direct descendant
+        var channelsInRange = Planet.Channels
+            .Where(x => x.RawPosition > Channel.RawPosition
+                        && x.RawPosition < lastDirectDescendant.RawPosition
+                        && PlanetComponent.GetVisible(x));
+
+        float height = 0;
+        foreach (var ch in channelsInRange)
+        {
+            height += 27f;
+
+            // Voice channels with participants have an extra row of avatars
+            if (ISharedChannel.VoiceChannelTypes.Contains(ch.ChannelType))
+            {
+                var count = Client.VoiceStateService.GetParticipantCount(ch.Id);
+                if (count > 0)
+                    height += 27f;
+            }
+        }
+
+        return height;
     }
 
     private void OnContextMenu(ContextPressEventArgs e)
@@ -281,7 +316,7 @@
 
         foreach (var channel in Planet.Channels)
         {
-            if (channel.ParentId == Channel.Id)
+            if (channel.ParentId == Channel.Id && PlanetComponent.ShouldShowChannel(channel))
                 _children.Add(channel);
         }
     }
@@ -290,20 +325,14 @@
     {
         DragManager.OnItemClickInCategory(this);
 
-        // Chat channels
-        if (ISharedChannel.ChatChannelTypes.Contains(Channel.ChannelType))
+        if (ISharedChannel.ChatChannelTypes.Contains(Channel.ChannelType) ||
+            ISharedChannel.VoiceChannelTypes.Contains(Channel.ChannelType))
         {
-            var newWindowContent = await ChatWindowComponent.GetDefaultContent(Channel);
-            
-            await WindowService.OpenWindowAtFocused(newWindowContent);
-
-            await Sidebar.ToggleSidebar();
-        }
-        else if (ISharedChannel.VoiceChannelTypes.Contains(Channel.ChannelType))
-        {
-            if (CallComponent.Instance is not null)
+            var newWindowContent = await ChannelWindowFactory.GetDefaultContent(Channel);
+            if (newWindowContent is not null)
             {
-                await CallComponent.Instance.Initialize(Channel);
+                await WindowService.OpenWindowAtFocused(newWindowContent);
+                await Sidebar.ToggleMobileSidebar();
             }
         }
         else if (Channel.ChannelType == ChannelTypeEnum.PlanetCategory)
@@ -342,7 +371,17 @@
     {
         if (Channel.ChannelType != ChannelTypeEnum.PlanetCategory)
         {
-            IsUnread = UnreadService.IsChannelUnread(Channel.PlanetId, Channel.Id);
+            if (ISharedChannel.IsPlanetCallType(Channel.ChannelType))
+            {
+                var associatedChatId = GetAssociatedChatChannelId();
+                IsUnread = UnreadService.IsChannelUnread(Channel.PlanetId, Channel.Id) ||
+                           (associatedChatId is not null &&
+                            UnreadService.IsChannelUnread(Channel.PlanetId, associatedChatId.Value));
+            }
+            else
+            {
+                IsUnread = UnreadService.IsChannelUnread(Channel.PlanetId, Channel.Id);
+            }
         }
         else
         {
@@ -362,7 +401,17 @@
 
     private void DetermineNotifications()
     {
-        _notificationCount = NotificationService.GetChannelNotifications(Channel.Id);
+        if (ISharedChannel.IsPlanetCallType(Channel.ChannelType))
+        {
+            var associatedChatId = GetAssociatedChatChannelId();
+            _notificationCount = NotificationService.GetChannelNotifications(Channel.Id);
+            if (associatedChatId is not null)
+                _notificationCount += NotificationService.GetChannelNotifications(associatedChatId.Value);
+        }
+        else
+        {
+            _notificationCount = NotificationService.GetChannelNotifications(Channel.Id);
+        }
     }
     
     // Get local index
@@ -377,6 +426,54 @@
         return _children;
     }
     
+    private void LoadVoiceParticipants()
+    {
+        if (ISharedChannel.VoiceChannelTypes.Contains(Channel.ChannelType))
+        {
+            _voiceParticipants = Client.VoiceStateService.GetParticipants(Channel.Id);
+        }
+    }
+
+    private void OnVoiceParticipantsChanged(long channelId)
+    {
+        if (channelId == Channel.Id)
+        {
+            // This is a voice channel — update its own participant list
+            _voiceParticipants = Client.VoiceStateService.GetParticipants(Channel.Id);
+            Refresh();
+            // Also refresh parent so its path line recalculates
+            ParentComponent?.Refresh();
+            return;
+        }
+
+        // Categories need to refresh their path line when a child voice channel's participants change
+        if (Channel.ChannelType == ChannelTypeEnum.PlanetCategory &&
+            _children.Any(x => x.Id == channelId))
+        {
+            Refresh();
+        }
+    }
+
+    private string GetUserAvatar(long userId)
+    {
+        if (Planet is not null)
+        {
+            var key = new PlanetMemberKey(userId, Planet.Id);
+            if (Client.Cache.MemberKeyToId.TryGetValue(key, out var memberId) &&
+                Planet.Members.TryGet(memberId, out var member))
+            {
+                return member.GetAvatar(AvatarFormat.Webp64);
+            }
+        }
+
+        if (Client.Cache.Users.TryGet(userId, out var user))
+        {
+            return user.GetAvatar(AvatarFormat.Webp64);
+        }
+
+        return ISharedUser.DefaultAvatar;
+    }
+
     #region Event Handlers
     
     private Task OnUserChannelStateUpdate(UserChannelState state)
@@ -389,7 +486,7 @@
         }
         else
         {
-            if (Channel.Id != state.ChannelId)
+            if (!MatchesChannelOrAssociatedChat(state.ChannelId))
                 return Task.CompletedTask;
         }
         
@@ -409,7 +506,7 @@
         }
         else
         {
-            if (Channel.Id != state.ChannelId)
+            if (!MatchesChannelOrAssociatedChat(state.ChannelId))
                 return Task.CompletedTask;
         }
             
@@ -439,7 +536,7 @@
         }
         else
         {
-            if (Channel.Id != notification.ChannelId)
+            if (notification.ChannelId is null || !MatchesChannelOrAssociatedChat(notification.ChannelId.Value))
                 return Task.CompletedTask;
         }
         
@@ -513,6 +610,10 @@
         // Planet voice
         { new IconState(false, false, ChannelTypeEnum.PlanetVoice), new IconData("music-note-beamed", "Voice channel", "16px", "-2px", "6px") },
         { new IconState(false, true, ChannelTypeEnum.PlanetVoice), new IconData("music-note-beamed", "Voice channel with unread messages", "16px", "-2px", "6px") },
+
+        // Planet video
+        { new IconState(false, false, ChannelTypeEnum.PlanetVideo), new IconData("camera-video", "Video channel", "16px", "-2px", "6px") },
+        { new IconState(false, true, ChannelTypeEnum.PlanetVideo), new IconData("camera-video-fill", "Video channel with unread messages", "16px", "-2px", "6px") },
         
         // Direct chat
         { new IconState(false, false, ChannelTypeEnum.DirectChat), new IconData("chat-left", "Direct chat", "14px", "-2px") },
@@ -540,6 +641,28 @@
     }
     
     #endregion
+
+    private long? GetAssociatedChatChannelId()
+    {
+        if (!ISharedChannel.IsPlanetCallType(Channel.ChannelType))
+            return null;
+
+        if (Channel.AssociatedChatChannelId is not null)
+            return Channel.AssociatedChatChannelId;
+
+        return Planet.Channels
+            .FirstOrDefault(x => x.AssociatedChatChannelId == Channel.Id)
+            ?.Id;
+    }
+
+    private bool MatchesChannelOrAssociatedChat(long channelId)
+    {
+        if (channelId == Channel.Id)
+            return true;
+
+        var associatedChatId = GetAssociatedChatChannelId();
+        return associatedChatId is not null && associatedChatId.Value == channelId;
+    }
     
     #region Drag and Drop
     
@@ -628,5 +751,7 @@
         
         ChannelService.ChannelConnected -= OnChannelConnectionChange;
         ChannelService.ChannelDisconnected -= OnChannelConnectionChange;
+
+        Client.VoiceStateService.VoiceParticipantsChanged -= OnVoiceParticipantsChanged;
     }
 }

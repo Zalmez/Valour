@@ -83,38 +83,33 @@
     [Parameter]
     public EditThemeComponent Editor { get; set; }
 
-    private Valour.Sdk.Models.Themes.Theme _theme;
     private ThemeVote _myVote;
-    private User _authorUser;
 
     private int _upvotes;
     private int _downvotes;
     private bool _myUpvote;
     private bool _myDownvote;
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
         if (Theme is null) return;
 
         _upvotes = Theme.Upvotes;
         _downvotes = Theme.Downvotes;
 
-        _theme = await ThemeService.FetchThemeAsync(Theme.Id);
-        if (_theme is null) return;
-
-        _theme = _theme.Sync(Client);
-
-        _authorUser = await UserService.FetchUserAsync(Theme.AuthorId);
-
-        _myVote = await _theme.GetMyVote();
-        if (_myVote is not null)
+        // Use vote data already included in the query response
+        if (Theme.MySentiment.HasValue && Theme.MyVoteId.HasValue)
         {
-            _myVote.SetClient(Client);
+            _myVote = new ThemeVote(Client)
+            {
+                Id = Theme.MyVoteId.Value,
+                ThemeId = Theme.Id,
+                UserId = Client.Me.Id,
+                Sentiment = Theme.MySentiment.Value
+            };
             _myUpvote = _myVote.Sentiment;
             _myDownvote = !_myVote.Sentiment;
         }
-
-        StateHasChanged();
     }
 
     private void OnClick()
@@ -125,9 +120,10 @@
     {
         if (Theme == null) return;
 
-        var theme = _theme ?? await ThemeService.FetchThemeAsync(Theme.Id);
+        var theme = await ThemeService.FetchThemeAsync(Theme.Id);
         if (theme != null)
         {
+            theme = theme.Sync(Client);
             await ThemeComponent.Instance.InstallTheme(theme);
         }
     }
@@ -136,27 +132,27 @@
     {
         if (Editor == null || Theme == null) return;
 
-        var theme = _theme ?? await ThemeService.FetchThemeAsync(Theme.Id);
+        var theme = await ThemeService.FetchThemeAsync(Theme.Id);
         if (theme != null)
         {
-            Editor.OpenEditorWithTheme(theme);
+            theme = theme.Sync(Client);
+            await Editor.OpenEditorWithTheme(theme);
         }
     }
 
-    private void OnClickTip()
+    private async Task OnClickTip()
     {
-        if (_authorUser is null) return;
+        var user = await UserService.FetchUserAsync(Theme.AuthorId);
+        if (user is null) return;
 
         ModalInjector.Service.OpenModal<EcoPayModal>(new EcoPayModal.ModalParams()
         {
-            TargetUserNameAndTag = _authorUser.NameAndTag
+            TargetUserNameAndTag = user.NameAndTag
         });
     }
 
     private async Task OnUpvoteAsync()
     {
-        if (_theme is null) return;
-
         if (_myVote is not null)
         {
             if (_myVote.Sentiment)
@@ -186,7 +182,7 @@
         {
             var vote = new ThemeVote(Client)
             {
-                ThemeId = _theme.Id,
+                ThemeId = Theme.Id,
                 Sentiment = true,
                 UserId = Client.Me.Id,
             };
@@ -206,8 +202,6 @@
 
     private async Task OnDownvoteAsync()
     {
-        if (_theme is null) return;
-
         if (_myVote is not null)
         {
             if (!_myVote.Sentiment)
@@ -237,7 +231,7 @@
         {
             var vote = new ThemeVote(Client)
             {
-                ThemeId = _theme.Id,
+                ThemeId = Theme.Id,
                 Sentiment = false,
                 UserId = Client.Me.Id,
             };

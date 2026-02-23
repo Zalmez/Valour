@@ -16,15 +16,21 @@ public static class UserSubscriptionMapper
             LastCharged = userSubscription.LastCharged,
             Active = userSubscription.Active,
             Cancelled = userSubscription.Cancelled,
-            Renewals = userSubscription.Renewals
+            Renewals = userSubscription.Renewals,
+            // Do not expose raw Stripe subscription IDs to clients.
+            StripeSubscriptionId = string.IsNullOrEmpty(userSubscription.StripeSubscriptionId)
+                ? null
+                : "stripe_managed",
+            StripePaymentFailed = userSubscription.StripePaymentFailed,
+            PendingType = userSubscription.PendingType
         };
     }
-    
+
     public static Valour.Database.UserSubscription ToDatabase(this UserSubscription userSubscription)
     {
         if (userSubscription is null)
             return null;
-        
+
         return new Valour.Database.UserSubscription()
         {
             Id = userSubscription.Id,
@@ -34,7 +40,10 @@ public static class UserSubscriptionMapper
             LastCharged = userSubscription.LastCharged,
             Active = userSubscription.Active,
             Cancelled = userSubscription.Cancelled,
-            Renewals = userSubscription.Renewals
+            Renewals = userSubscription.Renewals,
+            StripeSubscriptionId = userSubscription.StripeSubscriptionId,
+            StripePaymentFailed = userSubscription.StripePaymentFailed,
+            PendingType = userSubscription.PendingType
         };
     }
 }

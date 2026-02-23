@@ -79,6 +79,14 @@ window.getBrowserOrigin = function() {
     return window.location.origin;
 };
 
+window.getValourApiOrigin = function() {
+    const config = window["valourRuntimeConfig"];
+    if (!config || typeof config.apiOrigin !== "string")
+        return "";
+
+    return config.apiOrigin.trim();
+};
+
 function Log(message, color) {
     console.log("%c" + message, 'color: ' + color);
 }
@@ -579,4 +587,106 @@ async function injectEmbed(id, html, scriptSrc) {
 
 function playLottie(element) {
     element.play();
+}
+
+async function themeAssetPickFile(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) {
+        return null;
+    }
+
+    const readSelectedName = () => {
+        const file = input.files && input.files.length > 0 ? input.files[0] : null;
+        return file ? file.name : null;
+    };
+
+    const waitForSelectedName = async (timeoutMs = 1500) => {
+        const started = Date.now();
+        while (Date.now() - started < timeoutMs) {
+            const selectedName = readSelectedName();
+            if (selectedName) {
+                return selectedName;
+            }
+
+            await new Promise((r) => setTimeout(r, 50));
+        }
+
+        return null;
+    };
+
+    return await new Promise((resolve) => {
+        let resolved = false;
+        let timeoutId = null;
+
+        const cleanup = () => {
+            input.removeEventListener('change', onChange);
+            window.removeEventListener('focus', onFocus, true);
+            if (timeoutId !== null) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+        };
+
+        const finish = (selectedName) => {
+            if (resolved) {
+                return;
+            }
+
+            resolved = true;
+            cleanup();
+            resolve(selectedName);
+        };
+
+        const onChange = () => {
+            finish(readSelectedName());
+        };
+
+        const onFocus = async () => {
+            // Some browsers update input.files after focus returns.
+            const selectedName = await waitForSelectedName();
+            finish(selectedName);
+        };
+
+        input.value = '';
+        input.addEventListener('change', onChange);
+        window.addEventListener('focus', onFocus, true);
+
+        timeoutId = setTimeout(async () => {
+            const selectedName = await waitForSelectedName(100);
+            finish(selectedName);
+        }, 2500);
+
+        input.click();
+    });
+}
+
+async function themeAssetReadSelectedFile(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input || !input.files || input.files.length === 0) {
+        return null;
+    }
+
+    const file = input.files[0];
+    const buffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+    }
+
+    return {
+        Name: file.name,
+        ContentType: file.type,
+        Size: file.size,
+        Base64: btoa(binary)
+    };
+}
+
+function themeAssetClearSelection(inputId) {
+    const input = document.getElementById(inputId);
+    if (input) {
+        input.value = '';
+    }
 }

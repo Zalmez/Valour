@@ -25,7 +25,7 @@ public static class ConfigLoader
         config.GetSection("Notifications").Get<NotificationsConfig>();
         config.GetSection("Node").Get<NodeConfig>();
         config.GetSection("Redis").Get<RedisConfig>();
-        config.GetSection("Paypal").Get<PaypalConfig>();
+        config.GetSection("Stripe").Get<StripeConfig>();
         config.GetSection("Cloudflare").Get<CloudflareConfig>();
 
         // Override with Kubernetes node details

@@ -33,6 +33,7 @@
     private RenderFragment RolesContent => @<EditPlanetRolesComponent Planet="@Data.Planet" />;
     private RenderFragment EmojisContent => @<EditPlanetEmojisComponent Planet="@Data.Planet" />;
     private RenderFragment ModerationContent => @<EditPlanetModerationComponent Planet="@Data.Planet" />;
+    private RenderFragment AuditLogContent => @<EditPlanetAuditLogComponent Planet="@Data.Planet" />;
     private RenderFragment EconomyContent => @<EditPlanetEconomyComponent Planet="@Data.Planet" />;
     private RenderFragment DeleteContent => @<div></div>;
 
@@ -107,6 +108,13 @@
                         Icon = "shield-lock-fill",
                         Description = "Automated moderation settings",
                         Content = ModerationContent
+                    },
+                    new MainMenu.MenuItem()
+                    {
+                        Name = "Audit Log",
+                        Icon = "journal-bookmark-fill",
+                        Description = "Review moderation activity",
+                        Content = AuditLogContent
                     },
                     new MainMenu.MenuItem()
                     {

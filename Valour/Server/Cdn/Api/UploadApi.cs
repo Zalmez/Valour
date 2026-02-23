@@ -81,15 +81,27 @@ public class UploadApi
     {
         app.MapPost("/upload/profile", AvatarImageRoute);
         app.MapPost("/upload/profilebg", ProfileBackgroundImageRoute);
-        app.MapPost("/upload/image", ImageRouteNonPlus);
-        app.MapPost("/upload/image/plus", ImageRoutePlus);
+        app.MapPost("/upload/image", ImageRoute);
         app.MapPost("/upload/planet/{planetId}", PlanetImageRoute);
         app.MapPost("/upload/planetbg/{planetId}", PlanetBackgroundImageRoute);
         app.MapPost("/upload/planetemoji/{planetId}", PlanetEmojiImageRoute);
         app.MapPost("/upload/app/{appId}", AppImageRoute);
-        app.MapPost("/upload/file", FileRouteNonPlus);
-        app.MapPost("/upload/file/plus", FileRoutePlus);
+        app.MapPost("/upload/file", FileRoute);
         app.MapPost("upload/themeBanner/{themeId}", ThemeBannerRoute);
+        app.MapPost("upload/themeAsset/{themeId}", ThemeAssetRoute);
+    }
+
+    /// <summary>
+    /// Returns the max upload size in bytes for the given user based on their subscription tier.
+    /// </summary>
+    private static async Task<long> GetUserMaxUploadBytes(ValourDb db, long userId)
+    {
+        var subType = await db.UserSubscriptions
+            .Where(x => x.UserId == userId && x.Active)
+            .Select(x => x.Type)
+            .FirstOrDefaultAsync();
+
+        return UserSubscriptionTypes.GetMaxUploadBytes(subType);
     }
 
     public static void HandleExif(Image image)
@@ -113,34 +125,19 @@ public class UploadApi
     }
 
     [FileUploadOperation.FileContentType]
-    [RequestSizeLimit(20480000)]
-    private static async Task<IResult> ImageRoutePlus(HttpContext ctx, ValourDb db, TokenService tokenService, CdnBucketService bucketService, [FromHeader] string authorization)
+    [RequestSizeLimit(262_144_000)] // 250 MB (max tier limit)
+    private static async Task<IResult> ImageRoute(HttpContext ctx, ValourDb db, TokenService tokenService, CdnBucketService bucketService, [FromHeader] string authorization)
     {
         var authToken = await tokenService.GetCurrentTokenAsync();
-        var isPlus = await db.UserSubscriptions.AnyAsync(x => x.UserId == authToken.UserId && x.Active);
-        if (!isPlus)
-            return ValourResult.Forbid("You must be a Valour Plus subscriber to upload images larger than 10MB");
-        
-        return await ImageRoute(ctx, db, bucketService, authToken, authorization);
-    }
-
-    [FileUploadOperation.FileContentType]
-    [RequestSizeLimit(10240000)]
-    private static async Task<IResult> ImageRouteNonPlus(HttpContext ctx, ValourDb  db, TokenService tokenService, CdnBucketService bucketService, [FromHeader] string authorization)
-    {
-        var authToken = await tokenService.GetCurrentTokenAsync();
-        return await ImageRoute(ctx, db, bucketService, authToken, authorization);
-    }
-    
-    [FileUploadOperation.FileContentType]
-    [RequestSizeLimit(10240000)]
-    private static async Task<IResult> ImageRoute(HttpContext ctx, ValourDb db, CdnBucketService bucketService, Models.AuthToken authToken, string authorization)
-    {
         if (authToken is null) return ValourResult.InvalidToken();
 
         var file = ctx.Request.Form.Files.FirstOrDefault();
         if (file is null)
             return Results.BadRequest("Please attach a file");
+
+        var maxBytes = await GetUserMaxUploadBytes(db, authToken.UserId);
+        if (file.Length > maxBytes)
+            return ValourResult.Forbid($"File exceeds your upload limit of {maxBytes / (1024 * 1024)}MB. Upgrade your subscription for larger uploads!");
 
         if (!CdnUtils.ImageSharpSupported.Contains(file.ContentType))
             return Results.BadRequest("Unsupported file type");
@@ -275,6 +272,131 @@ public class UploadApi
         return ValourResult.Ok(fullPath);
     }
     
+    private static readonly HashSet<string> FontContentTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "font/ttf",
+        "font/woff",
+        "font/woff2",
+        "font/otf",
+        "application/font-woff",
+        "application/font-woff2",
+    };
+
+    [FileUploadOperation.FileContentType]
+    [RequestSizeLimit(20_971_520)] // 20 MB
+    private static async Task<IResult> ThemeAssetRoute(
+        HttpContext ctx,
+        ValourDb db,
+        TokenService tokenService,
+        ThemeService themeService,
+        CdnBucketService bucketService,
+        long themeId,
+        [FromQuery] string name)
+    {
+        var authToken = await tokenService.GetCurrentTokenAsync();
+        if (authToken is null) return ValourResult.InvalidToken();
+
+        var theme = await db.Themes.FindAsync(themeId);
+        if (theme is null)
+            return ValourResult.NotFound("Could not find theme");
+
+        if (theme.AuthorId != authToken.UserId)
+            return ValourResult.Forbid("You do not have permission to modify this theme");
+
+        var file = ctx.Request.Form.Files.FirstOrDefault();
+        if (file is null)
+            return Results.BadRequest("Please attach a file");
+
+        var isFont = FontContentTypes.Contains(file.ContentType);
+
+        if (!isFont && !CdnUtils.ImageSharpSupported.Contains(file.ContentType))
+            return Results.BadRequest("Unsupported file type");
+
+        try
+        {
+            using var ms = new MemoryStream();
+            string cdnExt;
+            bool isAnimated = false;
+            string assetType;
+
+            if (isFont)
+            {
+                // Font file — upload raw bytes, no image processing
+                cdnExt = Path.GetExtension(file.FileName)?.TrimStart('.').ToLowerInvariant() ?? "woff2";
+                // Validate extension
+                if (cdnExt != "woff2" && cdnExt != "woff" && cdnExt != "ttf" && cdnExt != "otf")
+                    cdnExt = "woff2";
+
+                var fileStream = file.OpenReadStream();
+                await fileStream.CopyToAsync(ms);
+                assetType = "font";
+            }
+            else
+            {
+                // Image file — existing processing path
+                using var image = await Image.LoadAsync(file.OpenReadStream());
+
+                HandleExif(image);
+
+                isAnimated = image.Frames.Count > 1;
+
+                if (isAnimated)
+                {
+                    cdnExt = Path.GetExtension(file.FileName)?.TrimStart('.').ToLowerInvariant() ?? "gif";
+                    if (cdnExt != "gif" && cdnExt != "webp")
+                        cdnExt = "gif";
+
+                    var fileStream = file.OpenReadStream();
+                    await fileStream.CopyToAsync(ms);
+                }
+                else
+                {
+                    cdnExt = "webp";
+                    var webpEncoder = new WebpEncoder
+                    {
+                        FileFormat = WebpFileFormatType.Lossless,
+                        TransparentColorMode = WebpTransparentColorMode.Preserve,
+                    };
+                    await image.SaveAsync(ms, webpEncoder);
+                }
+
+                assetType = "image";
+            }
+
+            ms.Position = 0;
+
+            // Create the asset record (validates name, limits, etc.)
+            var createResult = await themeService.CreateThemeAssetAsync(themeId, name, isAnimated, cdnExt, assetType);
+            if (!createResult.Success)
+                return ValourResult.BadRequest(createResult.Message);
+
+            var assetInfo = createResult.Data;
+
+            try
+            {
+                var cdnPath = $"themeAssets/{themeId}/{assetInfo.Id}/original.{cdnExt}";
+                var uploadResult = await bucketService.UploadPublicImage(ms, cdnPath);
+
+                if (!uploadResult.Success)
+                {
+                    await themeService.DeleteThemeAssetAsync(assetInfo.Id);
+                    return ValourResult.Problem("There was an issue uploading your file. Try a different format or size.");
+                }
+
+                return Results.Json(assetInfo);
+            }
+            catch (Exception)
+            {
+                await themeService.DeleteThemeAssetAsync(assetInfo.Id);
+                throw;
+            }
+        }
+        catch (Exception)
+        {
+            return ValourResult.BadRequest("Unable to process file. Check format and size.");
+        }
+    }
+
     public static ImageSize[] ProfileBackgroundSizes =
     {
         new(300, 400)
@@ -695,32 +817,19 @@ public class UploadApi
     }
 
     [FileUploadOperation.FileContentType]
-    [RequestSizeLimit(20480000)]
-    private static async Task<IResult> FileRoutePlus(HttpContext ctx, ValourDb db, TokenService tokenService, CdnBucketService bucketService, [FromHeader] string authorization)
+    [RequestSizeLimit(262_144_000)] // 250 MB (max tier limit)
+    private static async Task<IResult> FileRoute(HttpContext ctx, ValourDb db, TokenService tokenService, CdnBucketService bucketService, [FromHeader] string authorization)
     {
         var authToken = await tokenService.GetCurrentTokenAsync();
-        var isPlus = await db.UserSubscriptions.AnyAsync(x => x.UserId == authToken.UserId && x.Active);
-        if (!isPlus)
-            return ValourResult.Forbid("You must be a Valour Plus subscriber to upload files larger than 10MB");
-        
-        return await FileRoute(ctx, db, bucketService, authToken, authorization);
-    }
-    
-    [FileUploadOperation.FileContentType]
-    [RequestSizeLimit(10240000)]
-    private static async Task<IResult> FileRouteNonPlus(HttpContext ctx, ValourDb db, TokenService tokenService, CdnBucketService bucketService, [FromHeader] string authorization)
-    {
-        var authToken = await tokenService.GetCurrentTokenAsync();
-        return await FileRoute(ctx, db, bucketService, authToken, authorization);
-    }
-    
-    private static async Task<IResult> FileRoute(HttpContext ctx, ValourDb db, CdnBucketService bucketService, Models.AuthToken authToken, string authorization)
-    {
         if (authToken is null) return ValourResult.InvalidToken();
 
         var file = ctx.Request.Form.Files.FirstOrDefault();
         if (file is null)
             return Results.BadRequest("Please attach a file");
+
+        var maxBytes = await GetUserMaxUploadBytes(db, authToken.UserId);
+        if (file.Length > maxBytes)
+            return ValourResult.Forbid($"File exceeds your upload limit of {maxBytes / (1024 * 1024)}MB. Upgrade your subscription for larger uploads!");
 
         if (CdnUtils.ImageSharpSupported.Contains(file.ContentType))
             return Results.BadRequest("Unsupported file type");
@@ -737,7 +846,7 @@ public class UploadApi
         }
         else
         {
-            return ValourResult.Problem("There was an issue uploading your image. Try a different format or size.");
+            return ValourResult.Problem("There was an issue uploading your file. Try a different format or size.");
         }
     }
 

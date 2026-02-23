@@ -8,4 +8,5 @@ public class UserPreferences : ISharedUserPreferences
     public ErrorReportingState ErrorReportingState { get; set; }
     public int NotificationVolume { get; set; }
     public long EnabledNotificationSources { get; set; }
+    public DmPolicy DmPolicy { get; set; }
 }

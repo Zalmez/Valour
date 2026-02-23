@@ -1,3 +1,14 @@
+.chat-window-root {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.chat-window-root.embedded {
+    border-top: 1px solid rgba(255, 255, 255, 0.02);
+}
+
 .chat-member-wrapper {
     display: flex;
     flex-direction: row;
@@ -5,6 +16,10 @@
     max-height: 100%;
     flex-grow: 1;
     flex-shrink: 1;
+}
+
+.chat-member-wrapper.member-list-hidden {
+    flex-direction: column;
 }
 
 .chat-holder {

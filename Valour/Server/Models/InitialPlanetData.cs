@@ -22,4 +22,9 @@ public class InitialPlanetData
     /// Custom emojis available in the planet
     /// </summary>
     public IEnumerable<PlanetEmoji> Emojis { get; set; }
+
+    /// <summary>
+    /// Users currently in each voice channel (channelId -> userIds)
+    /// </summary>
+    public Dictionary<long, List<long>> VoiceParticipants { get; set; }
 }

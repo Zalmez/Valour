@@ -30,13 +30,11 @@ public class UserFriendApi
     [ValourRoute(HttpVerbs.Post, "api/userfriends/remove/{friendUsername}")]
     [UserRequired(UserPermissionsEnum.Friends)]
     public static async Task<IResult> RemoveFriendRouteAsync(
-	    [FromRoute] string friendUsername, 
+	    [FromRoute] string friendUsername,
         UserFriendService userFriendService,
         UserService userService)
     {
         var userId = await userService.GetCurrentUserIdAsync();
-
-        /* TODO: Eventually ensure user is not blocked */
 
         var result = await userFriendService.RemoveFriendAsync(friendUsername, userId);
         if (!result.Success)
@@ -54,9 +52,25 @@ public class UserFriendApi
     {
         var userId = await userService.GetCurrentUserIdAsync();
 
-        /* TODO: Eventually ensure user is not blocked */
-
         var result = await userFriendService.AddFriendAsync(friendUsername, userId);
+        if (!result.Success)
+            return ValourResult.Problem(result.Message);
+
+        return Results.Created($"api/userfriends/{result.Data.UserId}/{result.Data.FriendId}", result.Data);
+    }
+
+    [ValourRoute(HttpVerbs.Post, "api/userfriends/addByNameAndTag/{name}/{tag}")]
+    [UserRequired(UserPermissionsEnum.Friends)]
+    public static async Task<IResult> AddFriendByNameAndTagRouteAsync(
+        [FromRoute] string name,
+        [FromRoute] string tag,
+        UserFriendService userFriendService,
+        UserService userService)
+    {
+        var userId = await userService.GetCurrentUserIdAsync();
+        var nameAndTag = $"{name}#{tag}";
+
+        var result = await userFriendService.AddFriendAsync(nameAndTag, userId);
         if (!result.Success)
             return ValourResult.Problem(result.Message);
 
@@ -79,6 +93,24 @@ public class UserFriendApi
         return ValourResult.Ok("Declined request");
 	}
 
+    [ValourRoute(HttpVerbs.Post, "api/userfriends/declineByNameAndTag/{name}/{tag}")]
+    [UserRequired(UserPermissionsEnum.Friends)]
+    public static async Task<IResult> DeclineFriendByNameAndTagRouteAsync(
+        [FromRoute] string name,
+        [FromRoute] string tag,
+        UserFriendService userFriendService,
+        UserService userService)
+    {
+        var userId = await userService.GetCurrentUserIdAsync();
+        var nameAndTag = $"{name}#{tag}";
+
+        var result = await userFriendService.DeclineRequestAsync(nameAndTag, userId);
+        if (!result.Success)
+            return ValourResult.Problem(result.Message);
+
+        return ValourResult.Ok("Declined request");
+    }
+
 	[ValourRoute(HttpVerbs.Post, "api/userfriends/cancel/{username}")]
 	[UserRequired(UserPermissionsEnum.Friends)]
 	public static async Task<IResult> CancelFriendRouteAsync(
@@ -86,7 +118,7 @@ public class UserFriendApi
         UserFriendService userFriendService,
         UserService userService)
 	{
-        var userId = await userService.GetCurrentUserIdAsync(); ;
+        var userId = await userService.GetCurrentUserIdAsync();
 
         var result = await userFriendService.CancelRequestAsync(username, userId);
         if (!result.Success)
@@ -94,4 +126,40 @@ public class UserFriendApi
 
         return ValourResult.Ok("Cancelled request");
 	}
+
+    [ValourRoute(HttpVerbs.Post, "api/userfriends/cancelByNameAndTag/{name}/{tag}")]
+    [UserRequired(UserPermissionsEnum.Friends)]
+    public static async Task<IResult> CancelFriendByNameAndTagRouteAsync(
+        [FromRoute] string name,
+        [FromRoute] string tag,
+        UserFriendService userFriendService,
+        UserService userService)
+    {
+        var userId = await userService.GetCurrentUserIdAsync();
+        var nameAndTag = $"{name}#{tag}";
+
+        var result = await userFriendService.CancelRequestAsync(nameAndTag, userId);
+        if (!result.Success)
+            return ValourResult.Problem(result.Message);
+
+        return ValourResult.Ok("Cancelled request");
+    }
+
+    [ValourRoute(HttpVerbs.Post, "api/userfriends/removeByNameAndTag/{name}/{tag}")]
+    [UserRequired(UserPermissionsEnum.Friends)]
+    public static async Task<IResult> RemoveFriendByNameAndTagRouteAsync(
+        [FromRoute] string name,
+        [FromRoute] string tag,
+        UserFriendService userFriendService,
+        UserService userService)
+    {
+        var userId = await userService.GetCurrentUserIdAsync();
+        var nameAndTag = $"{name}#{tag}";
+
+        var result = await userFriendService.RemoveFriendAsync(nameAndTag, userId);
+        if (!result.Success)
+            return ValourResult.Problem(result.Message);
+
+        return ValourResult.Ok("Friendship removed successfully.");
+    }
 }

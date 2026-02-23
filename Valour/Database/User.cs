@@ -186,6 +186,16 @@ namespace Valour.Database
         public long? OwnerId { get; set; }
 
         /// <summary>
+        /// The first gradient color for the stargazer badge.
+        /// </summary>
+        public string StarColor1 { get; set; }
+
+        /// <summary>
+        /// The second gradient color for the stargazer badge.
+        /// </summary>
+        public string StarColor2 { get; set; }
+
+        /// <summary>
         /// The user who owns this bot (if applicable).
         /// </summary>
         public virtual User Owner { get; set; }
@@ -291,6 +301,12 @@ namespace Valour.Database
 
                 e.Property(x => x.OwnerId)
                     .HasColumnName("owner_id");
+
+                e.Property(x => x.StarColor1)
+                    .HasColumnName("star_color_1");
+
+                e.Property(x => x.StarColor2)
+                    .HasColumnName("star_color_2");
 
                 // Relationships
 

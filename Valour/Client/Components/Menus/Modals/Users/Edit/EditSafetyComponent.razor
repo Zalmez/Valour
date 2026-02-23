@@ -1,0 +1,202 @@
+@inject ValourClient Client
+@inject BlockService BlockService
+
+<div class="col-md-12 modal-bg">
+    <section>
+        <div class="title-container">
+            <h3>Safety <i class="bi bi-shield-fill-check"></i></h3>
+            <p class="subtitle">MANAGE BLOCKS AND DM PRIVACY</p>
+        </div>
+
+        <hr />
+
+        <h5>DM Privacy</h5>
+        <p class="description-text">Control who can send you direct messages.</p>
+        <div class="dm-policy-row">
+            <select class="form-control dm-select" @onchange="OnDmPolicyChanged">
+                <option value="0" selected="@(_dmPolicy == DmPolicy.Everyone)">Everyone</option>
+                <option value="1" selected="@(_dmPolicy == DmPolicy.FriendsOnly)">Friends Only</option>
+            </select>
+        </div>
+        <ResultLabel Result="@_dmPolicyResult" />
+
+        <hr />
+
+        <h5>Block Types</h5>
+        <p class="description-text">
+            <strong>One-Way:</strong> You stop seeing their messages. They can still see yours.<br/>
+            <strong>Two-Way:</strong> Neither of you can see each other's messages or profiles.
+        </p>
+
+        <hr />
+
+        <h5>Block a User</h5>
+        <div class="block-user-row">
+            <input class="form-control" @bind-value="@_blockName" placeholder="username#tag" @onkeydown="OnBlockKeyDown" />
+            <select class="form-control block-type-select" @bind="@_selectedBlockType">
+                <option value="0">One-Way</option>
+                <option value="1">Two-Way</option>
+            </select>
+            <button @onclick="OnBlockSubmit" type="button" class="v-btn">Block</button>
+        </div>
+        <ResultLabel Result="@_blockResult" />
+
+        <hr />
+
+        <h5>Blocked Users</h5>
+        <div class="inner-scroll-box">
+            @if (BlockService.Blocks.Count == 0)
+            {
+                <p class="description-text">No blocked users.</p>
+            }
+            else
+            {
+                @foreach (var block in BlockService.Blocks)
+                {
+                    <div class="block-row" @key="@block.BlockedUserId">
+                        <div class="block-info">
+                            @if (_blockedUsers.TryGetValue(block.BlockedUserId, out var user))
+                            {
+                                <UserInfoComponent User="@user" />
+                            }
+                            else
+                            {
+                                <span>User @block.BlockedUserId</span>
+                            }
+                            <span class="block-type-badge">@(block.BlockType == BlockType.TwoWay ? "Two-Way" : "One-Way")</span>
+                        </div>
+                        <button @onclick="async () => await OnUnblock(block)" type="button" class="v-btn v-btn-danger">Unblock</button>
+                    </div>
+                }
+            }
+        </div>
+        <ResultLabel Result="@_unblockResult" />
+    </section>
+</div>
+
+@code {
+    private DmPolicy _dmPolicy = DmPolicy.Everyone;
+    private string _blockName;
+    private int _selectedBlockType = 0;
+
+    private Dictionary<long, User> _blockedUsers = new();
+
+    private ITaskResult _dmPolicyResult;
+    private ITaskResult _blockResult;
+    private ITaskResult _unblockResult;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPreferences();
+        await ResolveBlockedUsers();
+    }
+
+    private async Task LoadPreferences()
+    {
+        var response = await Client.PrimaryNode.GetJsonAsync<UserPreferences>("api/users/me/preferences");
+        if (response.Success && response.Data is not null)
+        {
+            _dmPolicy = response.Data.DmPolicy;
+        }
+    }
+
+    private async Task ResolveBlockedUsers()
+    {
+        _blockedUsers.Clear();
+        foreach (var block in BlockService.Blocks)
+        {
+            if (!_blockedUsers.ContainsKey(block.BlockedUserId))
+            {
+                var user = await Client.UserService.FetchUserAsync(block.BlockedUserId);
+                if (user is not null)
+                    _blockedUsers[block.BlockedUserId] = user;
+            }
+        }
+    }
+
+    private async Task OnDmPolicyChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var val) && Enum.IsDefined(typeof(DmPolicy), val))
+        {
+            var nextPolicy = (DmPolicy)val;
+            var previousPolicy = _dmPolicy;
+
+            if (nextPolicy == previousPolicy)
+                return;
+
+            _dmPolicy = nextPolicy;
+
+            var result = await Client.PrimaryNode.PostAsyncWithResponse<UserPreferences>(
+                $"api/users/me/preferences/dmPolicy/{val}");
+
+            if (result.Success && result.Data is not null)
+            {
+                _dmPolicy = result.Data.DmPolicy;
+                _dmPolicyResult = new TaskResult(true, "DM policy updated.");
+            }
+            else
+            {
+                _dmPolicy = previousPolicy;
+                _dmPolicyResult = new TaskResult(false, result.Message);
+            }
+        }
+    }
+
+    private async Task OnBlockKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            await OnBlockSubmit();
+    }
+
+    private async Task OnBlockSubmit()
+    {
+        if (string.IsNullOrWhiteSpace(_blockName))
+        {
+            _blockResult = new TaskResult(false, "Please input a username.");
+            return;
+        }
+
+        var hashIndex = _blockName.IndexOf('#');
+        if (hashIndex <= 0 || hashIndex >= _blockName.Length - 1)
+        {
+            _blockResult = new TaskResult(false, "Invalid format. Use username#tag (e.g. SpikeViper#a1b2).");
+            return;
+        }
+
+        // Split username#tag and look up via separate route parameters
+        var parts = _blockName.Split('#', 2);
+        var userResponse = await Client.PrimaryNode.GetJsonAsync<User>($"api/users/byNameAndTag/{Uri.EscapeDataString(parts[0])}/{Uri.EscapeDataString(parts[1])}");
+        if (!userResponse.Success || userResponse.Data is null)
+        {
+            _blockResult = new TaskResult(false, $"User {_blockName} was not found.");
+            return;
+        }
+
+        var targetUser = userResponse.Data;
+
+        var blockType = (BlockType)_selectedBlockType;
+        var result = await BlockService.BlockUserAsync(targetUser.Id, blockType);
+        _blockResult = new TaskResult(result.Success, result.Success ? "Blocked successfully." : result.Message);
+
+        if (result.Success)
+        {
+            _blockName = "";
+            await ResolveBlockedUsers();
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task OnUnblock(UserBlock block)
+    {
+        var result = await BlockService.UnblockUserAsync(block.BlockedUserId);
+        _unblockResult = result;
+
+        if (result.Success)
+        {
+            await ResolveBlockedUsers();
+        }
+
+        StateHasChanged();
+    }
+}

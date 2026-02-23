@@ -23,19 +23,22 @@ public class AutomodService
     private readonly CoreHubService _coreHub;
     private readonly IServiceProvider _serviceProvider;
     private readonly PlanetPermissionService _permissionService;
+    private readonly ModerationAuditService _moderationAuditService;
 
     public AutomodService(
         ValourDb db,
         ILogger<AutomodService> logger,
         CoreHubService coreHub,
         IServiceProvider serviceProvider,
-        PlanetPermissionService permissionService)
+        PlanetPermissionService permissionService,
+        ModerationAuditService moderationAuditService)
     {
         _db = db;
         _logger = logger;
         _coreHub = coreHub;
         _serviceProvider = serviceProvider;
         _permissionService = permissionService;
+        _moderationAuditService = moderationAuditService;
     }
 
     public async Task<AutomodTrigger?> GetTriggerAsync(Guid id) =>
@@ -306,6 +309,29 @@ public class AutomodService
     private static bool IsMessageBlockAction(AutomodActionType actionType) =>
         actionType is AutomodActionType.DeleteMessage or AutomodActionType.BlockMessage;
 
+    public sealed class MessageScanResult
+    {
+        public bool AllowMessage { get; init; }
+        public List<AutomodAction> ActionsToRun { get; init; } = new();
+        public List<AutomodAction> BlockingActions { get; init; } = new();
+    }
+
+    public async Task RunMessageActionsAsync(IEnumerable<AutomodAction> actions, PlanetMember member, Message message)
+    {
+        await RunActionsAsync(actions, member, message);
+    }
+
+    private static ModerationActionType ToAuditActionType(AutomodActionType actionType) => actionType switch
+    {
+        AutomodActionType.Kick => ModerationActionType.Kick,
+        AutomodActionType.Ban => ModerationActionType.Ban,
+        AutomodActionType.AddRole => ModerationActionType.AddRole,
+        AutomodActionType.RemoveRole => ModerationActionType.RemoveRole,
+        AutomodActionType.DeleteMessage => ModerationActionType.DeleteMessage,
+        AutomodActionType.BlockMessage => ModerationActionType.BlockMessage,
+        _ => ModerationActionType.Respond
+    };
+
     private async Task RunActionsAsync(IEnumerable<AutomodAction> actions, PlanetMember member, Message? message)
     {
         await using var scope = _serviceProvider.CreateAsyncScope();
@@ -330,6 +356,19 @@ public class AutomodService
                                     action.Id,
                                     member.Id,
                                     kickResult.Message);
+                            }
+                            else
+                            {
+                                await _moderationAuditService.LogAsync(
+                                    member.PlanetId,
+                                    ModerationActionSource.Automod,
+                                    ModerationActionType.Kick,
+                                    actorUserId: ISharedUser.VictorUserId,
+                                    targetUserId: member.UserId,
+                                    targetMemberId: member.Id,
+                                    messageId: message?.Id,
+                                    triggerId: action.TriggerId,
+                                    details: action.Message);
                             }
                             break;
                         }
@@ -356,7 +395,11 @@ public class AutomodService
                                 TimeExpires = action.Expires
                             };
 
-                            var banResult = await banService.CreateAsync(ban, issuerMember);
+                            var banResult = await banService.CreateAsync(
+                                ban,
+                                issuerMember,
+                                ModerationActionSource.Automod,
+                                action.TriggerId);
                             if (!banResult.Success)
                             {
                                 _logger.LogWarning(
@@ -384,6 +427,19 @@ public class AutomodService
                                     member.Id,
                                     addRoleResult.Message);
                             }
+                            else
+                            {
+                                await _moderationAuditService.LogAsync(
+                                    member.PlanetId,
+                                    ModerationActionSource.Automod,
+                                    ModerationActionType.AddRole,
+                                    actorUserId: ISharedUser.VictorUserId,
+                                    targetUserId: member.UserId,
+                                    targetMemberId: member.Id,
+                                    messageId: message?.Id,
+                                    triggerId: action.TriggerId,
+                                    details: $"RoleId={action.RoleId.Value}");
+                            }
                             break;
                         }
                     case AutomodActionType.RemoveRole:
@@ -403,6 +459,19 @@ public class AutomodService
                                     member.Id,
                                     removeRoleResult.Message);
                             }
+                            else
+                            {
+                                await _moderationAuditService.LogAsync(
+                                    member.PlanetId,
+                                    ModerationActionSource.Automod,
+                                    ModerationActionType.RemoveRole,
+                                    actorUserId: ISharedUser.VictorUserId,
+                                    targetUserId: member.UserId,
+                                    targetMemberId: member.Id,
+                                    messageId: message?.Id,
+                                    triggerId: action.TriggerId,
+                                    details: $"RoleId={action.RoleId.Value}");
+                            }
                             break;
                         }
                     case AutomodActionType.DeleteMessage:
@@ -414,7 +483,16 @@ public class AutomodService
                         long targetChannelId;
                         long targetPlanetId;
 
-                        if (message is not null)
+                        if (action.ResponseChannelId.HasValue)
+                        {
+                            targetChannelId = action.ResponseChannelId.Value;
+                            targetMemberId = message?.AuthorMemberId ?? member.Id;
+                            targetPlanetId = message?.PlanetId ?? member.PlanetId;
+
+                            if (message is not null && message.AuthorMemberId is null)
+                                break;
+                        }
+                        else if (message is not null)
                         {
                             if (message.AuthorMemberId is null)
                                 break;
@@ -462,6 +540,19 @@ public class AutomodService
                                 "Automod respond action {ActionId} failed to post message in planet {PlanetId}: {Reason}",
                                 action.Id, targetPlanetId, responseResult.Message);
                         }
+                        else
+                        {
+                            await _moderationAuditService.LogAsync(
+                                member.PlanetId,
+                                ModerationActionSource.Automod,
+                                ModerationActionType.Respond,
+                                actorUserId: ISharedUser.VictorUserId,
+                                targetUserId: member.UserId,
+                                targetMemberId: member.Id,
+                                messageId: responseResult.Data?.Id ?? message?.Id,
+                                triggerId: action.TriggerId,
+                                details: action.Message);
+                        }
                         break;
                     }
             }
@@ -508,9 +599,26 @@ public class AutomodService
             case AutomodTriggerType.Spam:
                 if (recentMessages is null)
                     return false;
+
+                var messageThreshold = 5;
+                var windowSeconds = 10;
+
+                if (!string.IsNullOrWhiteSpace(trigger.TriggerWords))
+                {
+                    var parts = trigger.TriggerWords.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 1 && int.TryParse(parts[0], out var configuredThreshold))
+                        messageThreshold = Math.Clamp(configuredThreshold, 2, 50);
+
+                    if (parts.Length >= 2 && int.TryParse(parts[1], out var configuredWindow))
+                        windowSeconds = Math.Clamp(configuredWindow, 1, 300);
+                }
+
                 var now = DateTime.UtcNow;
-                var count = recentMessages.Count(m => m.AuthorMemberId == message.AuthorMemberId && (now - m.TimeSent).TotalSeconds < 10);
-                if (count >= 5)
+                var count = recentMessages.Count(m =>
+                    m.AuthorMemberId == message.AuthorMemberId &&
+                    (now - m.TimeSent).TotalSeconds < windowSeconds);
+
+                if (count >= messageThreshold)
                     return true;
                 break;
             case AutomodTriggerType.Join:
@@ -519,20 +627,21 @@ public class AutomodService
         return false;
     }
 
-    public async Task<bool> ScanMessageAsync(Message message, PlanetMember member)
+    public async Task<MessageScanResult> ScanMessageAsync(Message message, PlanetMember member)
     {
         if (message.PlanetId is null || member is null)
-            return true; // DMs are exempt
+            return new MessageScanResult { AllowMessage = true }; // DMs are exempt
         
         if (message.AuthorUserId == ISharedUser.VictorUserId)
-            return true; // Don't scan messages from Victor -- this would create an infinite loop
-
-        if (await _permissionService.HasPlanetPermissionAsync(member, PlanetPermissions.BypassAutomod))
-            return true;
+            return new MessageScanResult { AllowMessage = true }; // Don't scan messages from Victor -- this would create an infinite loop
 
         var triggers = await GetCachedTriggersAsync(member.PlanetId);
+        var hasBypassPermission = await _permissionService.HasPlanetPermissionAsync(member, PlanetPermissions.BypassAutomod);
+        if (hasBypassPermission)
+            triggers = triggers.Where(t => t.RunForEveryone).ToList();
+
         if (triggers.Count == 0)
-            return true;
+            return new MessageScanResult { AllowMessage = true };
 
         var recent = await _serviceProvider.GetRequiredService<ChatCacheService>().GetLastMessagesAsync(message.ChannelId);
         var matchedTriggers = triggers
@@ -540,7 +649,7 @@ public class AutomodService
             .ToList();
 
         if (matchedTriggers.Count == 0)
-            return true;
+            return new MessageScanResult { AllowMessage = true };
 
         var matchedTriggerIds = matchedTriggers.Select(t => t.Id).ToList();
         var actionsByTrigger = new Dictionary<Guid, List<AutomodAction>>(matchedTriggers.Count);
@@ -571,6 +680,7 @@ public class AutomodService
             .ToDictionaryAsync(x => x.TriggerId, x => x.Count);
 
         var actionsToRun = new List<AutomodAction>();
+        var blockingActions = new List<AutomodAction>();
         var allow = true;
 
         foreach (var trigger in matchedTriggers)
@@ -583,26 +693,48 @@ public class AutomodService
             if (filteredActions.Count == 0)
                 continue;
 
-            if (filteredActions.Any(a => IsMessageBlockAction(a.ActionType)))
+            var triggerBlocking = filteredActions.Where(a => IsMessageBlockAction(a.ActionType)).ToList();
+            if (triggerBlocking.Count > 0)
                 allow = false;
 
+            blockingActions.AddRange(triggerBlocking);
             actionsToRun.AddRange(filteredActions.Where(a => !IsMessageBlockAction(a.ActionType)));
         }
 
-        if (actionsToRun.Count > 0)
-            await RunActionsAsync(actionsToRun, member, message);
+        if (blockingActions.Count > 0)
+        {
+            foreach (var action in blockingActions)
+            {
+                await _moderationAuditService.LogAsync(
+                    member.PlanetId,
+                    ModerationActionSource.Automod,
+                    ToAuditActionType(action.ActionType),
+                    actorUserId: ISharedUser.VictorUserId,
+                    targetUserId: member.UserId,
+                    targetMemberId: member.Id,
+                    messageId: message.Id,
+                    triggerId: action.TriggerId,
+                    details: action.Message);
+            }
+        }
 
-        return allow;
+        return new MessageScanResult
+        {
+            AllowMessage = allow,
+            ActionsToRun = actionsToRun,
+            BlockingActions = blockingActions
+        };
     }
 
     public async Task HandleMemberJoinAsync(PlanetMember member)
     {
-        if (await _permissionService.HasPlanetPermissionAsync(member, PlanetPermissions.BypassAutomod))
-            return;
-
         var joinTriggers = (await GetCachedTriggersAsync(member.PlanetId))
             .Where(t => t.Type == AutomodTriggerType.Join)
             .ToList();
+        var hasBypassPermission = await _permissionService.HasPlanetPermissionAsync(member, PlanetPermissions.BypassAutomod);
+        if (hasBypassPermission)
+            joinTriggers = joinTriggers.Where(t => t.RunForEveryone).ToList();
+
         if (joinTriggers.Count == 0)
             return;
 

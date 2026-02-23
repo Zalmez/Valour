@@ -1,0 +1,24 @@
+@implements IDisposable
+@inject RealtimeKitHostService RealtimeKitHost
+
+<RealtimeKitComponent @ref="_rtk" />
+
+@code {
+    private RealtimeKitComponent? _rtk;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (_rtk is not null)
+        {
+            RealtimeKitHost.Register(_rtk);
+        }
+    }
+
+    void IDisposable.Dispose()
+    {
+        if (_rtk is not null)
+        {
+            RealtimeKitHost.Unregister(_rtk);
+        }
+    }
+}

@@ -1,5 +1,10 @@
-@inject ValourClient Client
 @using System.Net.Http.Headers
+@using Valour.Shared.Extensions
+@using System.IO
+@inject HttpClient Http
+@inject NavigationManager NavManager
+@inject ValourClient Client
+@inject AuthService AuthService
 
 @if (_profile is null)
 {
@@ -11,17 +16,64 @@
 }
 
 <div class="profile-editor-container">
+
+    @* ===== Avatar ===== *@
+    <div class="editor-section">
+        <h3 class="editor-section-title">
+            <i class="bi bi-image"></i>
+            Avatar
+        </h3>
+
+        <div class="avatar-container">
+            <img alt="Your profile picture" class="avatar bordered" src="@_pfpUrl" @onerror="@OnPfpError" onclick="document.getElementById('avatar-upload').click()" />
+            <p class="helper-text">Click the image to upload a new profile picture</p>
+            <ResultLabel Result="@_pfpChangeResult" />
+            <div style="display:none">
+                <InputFile OnChange="@LoadAvatarFile" accept=".png,.jpg,.jpeg,.gif,.webp" id="avatar-upload"></InputFile>
+            </div>
+        </div>
+    </div>
+
+    @* ===== Profile Details ===== *@
     <div class="editor-section">
         <h3 class="editor-section-title">
             <i class="bi bi-pencil-square"></i>
             Profile Details
         </h3>
-        
+
+        <div class="preview">
+            <UserInfoComponent User="@Client.Me" @ref="@_infoPreview" />
+        </div>
+
+        <div class="form-group">
+            <label>Status Message</label>
+            <div class="input-group">
+                <input class="v-input" placeholder="Choose a status..." @bind="_status" />
+                <button class="v-btn primary" @onclick="OnStatusApply">Apply</button>
+            </div>
+            <ResultLabel Result="@_statusChangeResult" />
+        </div>
+
+        <div class="form-group">
+            <label>Status Code</label>
+            <div class="input-group">
+                <InputSelect class="v-input" @bind-Value="_statusCode">
+                    <option value="0">Automatic</option>
+                    <option value="4">Online</option>
+                    <option value="2">Away</option>
+                    <option value="3">Do Not Disturb</option>
+                    <option value="1">Offline</option>
+                </InputSelect>
+                <button class="v-btn primary" @onclick="@OnStatusCodeApply">Apply</button>
+            </div>
+            <ResultLabel Result="@_statusCodeChangeResult" />
+        </div>
+
         <div class="form-group">
             <label>Headline</label>
-            <input class="v-input" placeholder="A short blurb" @bind="@_profile.Headline"/>
+            <input class="v-input" placeholder="A short blurb" @bind="@_profile.Headline" />
         </div>
-        
+
         <div class="form-group">
             <label>Bio</label>
             <textarea class="v-input" rows="4" placeholder="A little bit about me..." @bind="@_profile.Bio"></textarea>
@@ -33,13 +85,54 @@
 
         <ResultLabel Result="@_result" />
     </div>
-    
+
+    @* ===== Star Badge ===== *@
+    @if (Client.Me.HasStargazer)
+    {
+        <div class="editor-section">
+            <h3 class="editor-section-title">
+                <i class="bi bi-star-fill"></i>
+                Star Badge
+            </h3>
+
+            <div class="star-preview">
+                <StarBadge UserId="Client.Me.Id" Color1="@_starPreviewColor1" Color2="@_starPreviewColor2" />
+                <span>Your Stargazer badge</span>
+            </div>
+
+            @if (Client.Me.HasStargazerPro)
+            {
+                <div class="color-pickers">
+                    <div class="color-picker-item">
+                        <span class="v-span">Gradient Start</span>
+                        <ColorPickerComponent StartColor="@_starPreviewColor1" OnColorChange="@(async (color) => { _starColor1 = color; _starPreviewColor1 = color; StateHasChanged(); })" />
+                    </div>
+                    <div class="color-picker-item">
+                        <span class="v-span">Gradient End</span>
+                        <ColorPickerComponent StartColor="@_starPreviewColor2" OnColorChange="@(async (color) => { _starColor2 = color; _starPreviewColor2 = color; StateHasChanged(); })" />
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button class="v-btn primary" @onclick="OnSaveStarColors">Save Star Colors</button>
+                    <button class="v-btn secondary" @onclick="OnResetStarColors">Reset to Default</button>
+                </div>
+                <ResultLabel Result="@_starColorResult" />
+            }
+            else
+            {
+                <p class="helper-text">Upgrade to Stargazer Pro to customize your star colors.</p>
+            }
+        </div>
+    }
+
+    @* ===== Appearance ===== *@
     <div class="editor-section">
         <h3 class="editor-section-title">
             <i class="bi bi-palette"></i>
             Appearance
         </h3>
-        
+
         @if (Client.Me.Subscription is null)
         {
             <div class="toggle-item">
@@ -64,7 +157,7 @@
                     </label>
                 </div>
                 <p class="toggle-description">Use three colors in a gradient as the border.</p>
-            
+
                 @if (_isGradientEnabled)
                 {
                     <div class="toggle-content">
@@ -82,7 +175,7 @@
                 }
             </div>
         }
-        
+
         <div class="color-pickers">
             @if (Client.Me.Subscription != null && _isGradientEnabled)
             {
@@ -122,13 +215,14 @@
 
         <ResultLabel Result="@_result" />
     </div>
-    
+
+    @* ===== Background Image ===== *@
     <div class="editor-section">
         <h3 class="editor-section-title">
             <i class="bi bi-image"></i>
             Background Image
         </h3>
-        
+
         @if (Client.Me.Subscription is null)
         {
             <div class="toggle-item">
@@ -153,7 +247,7 @@
                     </label>
                 </div>
                 <p class="toggle-description">Choose a custom (safe for work) 300x400 image as your background!</p>
-                
+
                 @if (_isCustomBackgroundEnabled)
                 {
                     <div class="toggle-content custom-file-input">
@@ -162,9 +256,36 @@
                 }
             </div>
         }
-        
+
         <ResultLabel Result="@_result" />
     </div>
+
+    @* ===== Account ===== *@
+    <div class="editor-section">
+        <h3 class="editor-section-title">
+            <i class="bi bi-person-gear"></i>
+            Account
+        </h3>
+
+        <div class="form-group">
+            <label>Tag</label>
+            <div class="input-group">
+                <input class="v-input" placeholder="Tag" @bind="@_tag" maxlength="4" disabled="@(Client.Me.Subscription is null)" />
+                <button class="v-btn primary" @onclick="@OnTagApply" disabled="@(Client.Me.Subscription is null)">Apply</button>
+            </div>
+            @if (Client.Me.Subscription is null) {
+                <p class="helper-text">You need Stargazer to change your tag.</p>
+            }
+            <ResultLabel Result="@_tagChangeResult" />
+        </div>
+
+        <div class="actions">
+            <button class="v-btn secondary" @onclick="@OnClickChangeUsername">Change Username</button>
+            <button class="v-btn danger" @onclick="@OnClickDeleteAccount">Delete Account</button>
+        </div>
+    </div>
+
+    @* ===== Profile Preview ===== *@
     <div class="profile-preview-container">
         <div class="editor-section">
             <h3 class="editor-section-title">
@@ -184,28 +305,48 @@
 
 
 @code {
+    [CascadingParameter]
+    public ModalRoot ModalRoot { get; set; }
+
+    private UserInfoComponent _infoPreview;
 
     private ITaskResult _result;
-    
+    private ITaskResult _pfpChangeResult;
+    private ITaskResult _statusChangeResult;
+    private ITaskResult _statusCodeChangeResult;
+    private ITaskResult _tagChangeResult;
+    private ITaskResult _starColorResult;
+
     private Dictionary<string, object> _bgInputAttributes = new Dictionary<string, object>()
     {
         { "accept", ".png,.jpg,.jpeg,.gif" }
     };
-    
+
     private ProfileCard _profileCard;
     private UserProfile _profile;
 
     private bool _isGradientEnabled;
     private bool _isGradientBlocked = false;
-    
+
     private bool _isCustomBackgroundEnabled;
-    
+
     private bool _isAnimEnabled = false;
     private bool _isAnimBlocked = false;
 
-    private string _errorSpan;
-    private string _successSpan;
-    
+    // Status & info fields (merged from EditUserInfoComponent)
+    private string _tag;
+    private string _pfpUrl;
+    private string _cropDataUrl;
+    private string _pendingImageType;
+    private string _status;
+    private int _statusCode;
+
+    // Star badge colors
+    private string _starColor1;
+    private string _starColor2;
+    private string _starPreviewColor1;
+    private string _starPreviewColor2;
+
     protected override async Task OnInitializedAsync()
     {
         _profile = await Client.Me.FetchProfileAsync();
@@ -213,6 +354,18 @@
         _isCustomBackgroundEnabled = !string.IsNullOrWhiteSpace(_profile.BackgroundImage);
         _isGradientEnabled = !string.IsNullOrWhiteSpace(_profile.PrimaryColor);
         _isAnimEnabled = _profile.AnimatedBorder;
+
+        // Init info fields
+        _pfpUrl = Client.Me.GetAvatar(AvatarFormat.Webp256);
+        _status = Client.Me.Status;
+        _statusCode = Client.Me.UserStateCode;
+        _tag = Client.Me.Tag;
+
+        // Init star colors
+        _starColor1 = Client.Me.StarColor1;
+        _starColor2 = Client.Me.StarColor2;
+        _starPreviewColor1 = Client.Me.GetStarColor1();
+        _starPreviewColor2 = Client.Me.GetStarColor2();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -221,10 +374,195 @@
             await _profileCard.LoadDetailsAsync();
     }
 
+    // ===== Status & Tag =====
+
+    private async Task OnStatusApply()
+    {
+        var oldStatus = Client.Me.Status;
+        Client.Me.Status = _status;
+
+        _statusChangeResult = await Client.Me.UpdateAsync();
+
+        if (!_statusChangeResult.Success)
+            Client.Me.Status = oldStatus;
+
+        StateHasChanged();
+        _infoPreview?.UpdateAll();
+    }
+
+    private async Task OnStatusCodeApply()
+    {
+        var oldStatusCode = Client.Me.UserStateCode;
+        Client.Me.UserStateCode = _statusCode;
+
+        _statusCodeChangeResult = await Client.Me.UpdateAsync();
+
+        if (!_statusCodeChangeResult.Success)
+            Client.Me.UserStateCode = oldStatusCode;
+
+        StateHasChanged();
+        _infoPreview?.UpdateAll();
+    }
+
+    private async Task OnTagApply()
+    {
+        if (_tag.Length != 4)
+        {
+            _tagChangeResult = new TaskResult(false, "Tag must be 4 characters long.");
+            StateHasChanged();
+            return;
+        }
+
+        foreach (var c in _tag)
+        {
+            if (!char.IsLetterOrDigit(c))
+            {
+                _tagChangeResult = new TaskResult(false, "Tag must be alphanumeric.");
+                StateHasChanged();
+                return;
+            }
+        }
+
+        var oldTag = Client.Me.Tag;
+        Client.Me.Tag = _tag;
+
+        _tagChangeResult = await Client.Me.UpdateAsync();
+
+        if (!_tagChangeResult.Success)
+            Client.Me.Tag = oldTag;
+
+        StateHasChanged();
+        _infoPreview?.UpdateAll();
+    }
+
+    // ===== Avatar =====
+
+    private void OnPfpError()
+    {
+        _pfpUrl = "_content/Valour.Client/icon-512.webp";
+        StateHasChanged();
+    }
+
+    private async Task LoadAvatarFile(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+
+        if (file.Size > 10240000)
+        {
+            _pfpChangeResult = new TaskResult(false, "Max profile image size is 10mb.");
+            StateHasChanged();
+            return;
+        }
+
+        using var ms = new MemoryStream();
+        await file.OpenReadStream(10240000).CopyToAsync(ms);
+        _pendingImageType = file.ContentType;
+        _cropDataUrl = $"data:{file.ContentType};base64,{Convert.ToBase64String(ms.ToArray())}";
+
+        var modalData = new ImageCropperModal.ModalParams
+        {
+            ImageDataUrl = _cropDataUrl,
+            AspectRatio = 1d,
+            OutputMimeType = _pendingImageType,
+            OnCropped = async (dataUrl) => await OnAvatarCropped(dataUrl),
+            OnCancel = OnCropCancel
+        };
+        ModalRoot.OpenModal<ImageCropperModal>(modalData);
+    }
+
+    private async Task UploadAvatar(byte[] data, string contentType)
+    {
+        var streamContent = new StreamContent(new MemoryStream(data));
+        var content = new MultipartFormDataContent();
+        streamContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        content.Add(streamContent, "avatar", "avatar");
+
+        var result = await Client.PrimaryNode.PostMultipartDataWithResponse<string>($"upload/profile", content);
+
+        _pfpChangeResult = result;
+
+        if (_pfpChangeResult.Success)
+        {
+            User newUser = new(Client);
+            Client.Me.CopyAllTo(newUser);
+            newUser.HasCustomAvatar = true;
+            newUser.HasAnimatedAvatar = contentType == "image/gif";
+            newUser.Version++;
+            Client.Cache.Users.Put(newUser);
+
+            _pfpUrl = newUser.GetAvatar(AvatarFormat.WebpAnimated256);
+        }
+
+        StateHasChanged();
+        _infoPreview?.UpdateAll();
+    }
+
+    private async Task OnAvatarCropped(string dataUrl)
+    {
+        var base64 = dataUrl.Substring(dataUrl.IndexOf(',') + 1);
+        var bytes = Convert.FromBase64String(base64);
+        await UploadAvatar(bytes, _pendingImageType);
+    }
+
+    private void OnCropCancel() { }
+
+    // ===== Star Badge Colors =====
+
+    private async Task OnSaveStarColors()
+    {
+        var oldColor1 = Client.Me.StarColor1;
+        var oldColor2 = Client.Me.StarColor2;
+
+        Client.Me.StarColor1 = _starColor1;
+        Client.Me.StarColor2 = _starColor2;
+
+        _starColorResult = await Client.Me.UpdateAsync();
+
+        if (!_starColorResult.Success)
+        {
+            Client.Me.StarColor1 = oldColor1;
+            Client.Me.StarColor2 = oldColor2;
+        }
+        else
+        {
+            _starPreviewColor1 = Client.Me.GetStarColor1();
+            _starPreviewColor2 = Client.Me.GetStarColor2();
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task OnResetStarColors()
+    {
+        _starColor1 = null;
+        _starColor2 = null;
+
+        var oldColor1 = Client.Me.StarColor1;
+        var oldColor2 = Client.Me.StarColor2;
+
+        Client.Me.StarColor1 = null;
+        Client.Me.StarColor2 = null;
+
+        _starColorResult = await Client.Me.UpdateAsync();
+
+        if (!_starColorResult.Success)
+        {
+            Client.Me.StarColor1 = oldColor1;
+            Client.Me.StarColor2 = oldColor2;
+        }
+
+        _starPreviewColor1 = Client.Me.GetStarColor1();
+        _starPreviewColor2 = Client.Me.GetStarColor2();
+
+        StateHasChanged();
+    }
+
+    // ===== Profile Appearance =====
+
     private void OnGradientClick()
     {
         _isGradientEnabled = !_isGradientEnabled;
-        
+
         if (_isGradientEnabled)
         {
             _profile.PrimaryColor = "#fff";
@@ -237,16 +575,16 @@
             _profile.SecondaryColor = null;
             _profile.TertiaryColor = null;
         }
-        
+
         StateHasChanged();
     }
-    
+
     private void OnCustomBackgroundClick()
     {
         _isCustomBackgroundEnabled = !_isCustomBackgroundEnabled;
         StateHasChanged();
     }
-    
+
     private void OnAnimClick()
     {
         _isAnimEnabled = !_isAnimEnabled;
@@ -256,9 +594,6 @@
 
     private async Task OnClickSaveAsync()
     {
-        _errorSpan = null;
-        _successSpan = null;
-
         if (!_isCustomBackgroundEnabled)
         {
             _profile.BackgroundImage = null;
@@ -267,24 +602,24 @@
         var result = await _profile.UpdateAsync();
 
         _result = result;
-        
+
         StateHasChanged();
     }
-    
+
     private async Task LoadBackgroundImage(InputFileChangeEventArgs e)
     {
         var file = e.File;
 
         if (file == null)
         {
-            _errorSpan = "Could not load file as an image.";
+            _result = new TaskResult(false, "Could not load file as an image.");
             StateHasChanged();
             return;
         }
 
         if (file.Size > 10485760)
         {
-            _errorSpan = "Max background image size is 10mb.";
+            _result = new TaskResult(false, "Max background image size is 10mb.");
             StateHasChanged();
             return;
         }
@@ -309,5 +644,17 @@
         _result = result;
 
         StateHasChanged();
+    }
+
+    // ===== Account =====
+
+    private void OnClickDeleteAccount()
+    {
+        ModalRoot.OpenModal<DeleteAccountModal>();
+    }
+
+    private void OnClickChangeUsername()
+    {
+        ModalRoot.OpenModal<ChangeUsernameModal>();
     }
 }

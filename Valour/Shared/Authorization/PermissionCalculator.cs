@@ -36,6 +36,7 @@ public static class PermissionCalculator
             ChannelTypeEnum.PlanetChat => role.ChatPermissions,
             ChannelTypeEnum.PlanetCategory => role.CategoryPermissions,
             ChannelTypeEnum.PlanetVoice => role.VoicePermissions,
+            ChannelTypeEnum.PlanetVideo => role.VoicePermissions,
             _ => 0
         };
     }

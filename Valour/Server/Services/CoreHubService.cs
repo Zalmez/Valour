@@ -210,6 +210,9 @@ public class CoreHubService
     public void NotifyVoiceSessionReplace(long userId, VoiceSessionReplaceEvent update) =>
         _ = _hub.Clients.Group($"u-{userId}").SendAsync("Voice-Session-Replace", update);
 
+    public void NotifyVoiceChannelParticipants(long planetId, VoiceChannelParticipantsUpdate update) =>
+        _ = _hub.Clients.Group($"p-{planetId}").SendAsync("Voice-Channel-Participants", update);
+
     public void NotifyPlanetItemChange<T>(long planetId, T model, int flags = 0) =>
         _ = _hub.Clients.Group($"p-{planetId}").SendAsync($"{typeof(T).Name}-Update", model, flags);
     

@@ -32,6 +32,64 @@ public class ChannelService
         _hostedPlanetService = hostedPlanetService;
     }
 
+    private static bool IsPlanetCallChannelType(ChannelTypeEnum type) =>
+        ISharedChannel.IsPlanetCallType(type);
+
+    private static PermissionState GetNodePermissionState(PermissionsNode node, Permission permission) =>
+        ISharedPermissionsNode.GetPermissionState(node, permission, ignoreviewperm: true);
+
+    private static List<PermissionsNode> BuildAssociatedChatPermissionNodes(
+        List<PermissionsNode>? sourceNodes,
+        long planetId,
+        long callChannelId,
+        long chatChannelId)
+    {
+        var result = new List<PermissionsNode>();
+        if (sourceNodes is null || sourceNodes.Count == 0)
+            return result;
+
+        foreach (var sourceNode in sourceNodes)
+        {
+            if (sourceNode.TargetId != callChannelId)
+                continue;
+
+            if (sourceNode.TargetType is not ChannelTypeEnum.PlanetVoice and not ChannelTypeEnum.PlanetVideo)
+                continue;
+
+            var mappedNode = new PermissionsNode
+            {
+                Id = IdManager.Generate(),
+                PlanetId = planetId,
+                RoleId = sourceNode.RoleId,
+                TargetId = chatChannelId,
+                TargetType = ChannelTypeEnum.PlanetChat,
+                Code = 0,
+                Mask = 0
+            };
+
+            var viewState = GetNodePermissionState(sourceNode, VoiceChannelPermissions.View);
+            if (viewState != PermissionState.Undefined)
+            {
+                mappedNode.SetPermission(ChatChannelPermissions.View, viewState);
+                mappedNode.SetPermission(ChatChannelPermissions.ViewMessages, viewState);
+                mappedNode.SetPermission(ChatChannelPermissions.PostMessages, viewState);
+            }
+
+            var manageChannelState = GetNodePermissionState(sourceNode, VoiceChannelPermissions.ManageChannel);
+            if (manageChannelState != PermissionState.Undefined)
+                mappedNode.SetPermission(ChatChannelPermissions.ManageChannel, manageChannelState);
+
+            var managePermissionsState = GetNodePermissionState(sourceNode, VoiceChannelPermissions.ManagePermissions);
+            if (managePermissionsState != PermissionState.Undefined)
+                mappedNode.SetPermission(ChatChannelPermissions.ManagePermissions, managePermissionsState);
+
+            if (mappedNode.Mask != 0)
+                result.Add(mappedNode);
+        }
+
+        return result;
+    }
+
     /// <summary>
     /// Returns the channel with the given id
     /// </summary>
@@ -139,6 +197,11 @@ public class ChannelService
     public async Task<TaskResult> DeletePlanetChannelAsync(long planetId, long channelId)
     {
         var hostedPlanet = await _hostedPlanetService.GetRequiredAsync(planetId);
+
+        var isAssociatedChat = await _db.Channels
+            .AnyAsync(x => x.AssociatedChatChannelId == channelId && !x.IsDeleted);
+        if (isAssociatedChat)
+            return TaskResult.FromFailure("This channel is managed by an associated call channel and cannot be deleted directly.");
         
         var dbChannel = await _db.Channels.FindAsync(channelId);
         if (dbChannel is null)
@@ -149,21 +212,42 @@ public class ChannelService
         
         if (dbChannel.IsDefault == true)
             return TaskResult.FromFailure("You cannot delete the default channel.");
-        
-        dbChannel.IsDeleted = true;
-        _db.Channels.Update(dbChannel);
+
+        var channelsToDelete = new List<Valour.Database.Channel> { dbChannel };
+
+        if (dbChannel.AssociatedChatChannelId is not null)
+        {
+            var associated = await _db.Channels.FirstOrDefaultAsync(x =>
+                x.Id == dbChannel.AssociatedChatChannelId.Value &&
+                x.PlanetId == planetId &&
+                !x.IsDeleted);
+
+            if (associated is not null)
+                channelsToDelete.Add(associated);
+        }
+
+        foreach (var channelToDelete in channelsToDelete)
+        {
+            channelToDelete.IsDeleted = true;
+            _db.Channels.Update(channelToDelete);
+        }
+
         await _db.SaveChangesAsync();
-        
-        // Remove from hosted planet
-        hostedPlanet.RemoveChannel(dbChannel.Id);
+
+        foreach (var channelToDelete in channelsToDelete)
+        {
+            hostedPlanet.RemoveChannel(channelToDelete.Id);
+        }
 
         // Channel topology changed; clear cached channel access snapshots.
         await _planetPermissionService.HandleChannelTopologyChange(planetId);
 
-        var model = dbChannel.ToModel();
-
-        if (model.PlanetId is not null)
-            _coreHub.NotifyPlanetItemDelete(model.PlanetId.Value, model);
+        foreach (var channelToDelete in channelsToDelete)
+        {
+            var model = channelToDelete.ToModel();
+            if (model.PlanetId is not null)
+                _coreHub.NotifyPlanetItemDelete(model.PlanetId.Value, model);
+        }
         
         return TaskResult.SuccessResult;
     }
@@ -218,6 +302,27 @@ public class ChannelService
         channel.Id = IdManager.Generate();
         channel.LastUpdateTime = DateTime.UtcNow;
 
+        Channel? associatedChatChannel = null;
+        if (channel.PlanetId is not null && IsPlanetCallChannelType(channel.ChannelType))
+        {
+            associatedChatChannel = new Channel
+            {
+                Id = IdManager.Generate(),
+                Name = channel.Name,
+                Description = $"Integrated chat for {channel.Name}",
+                ChannelType = ChannelTypeEnum.PlanetChat,
+                LastUpdateTime = channel.LastUpdateTime,
+                PlanetId = channel.PlanetId,
+                ParentId = channel.ParentId,
+                RawPosition = 0,
+                InheritsPerms = channel.InheritsPerms,
+                IsDefault = false,
+                Nsfw = channel.Nsfw
+            };
+
+            channel.AssociatedChatChannelId = associatedChatChannel.Id;
+        }
+
         await using var tran = await _db.Database.BeginTransactionAsync();
 
         try
@@ -237,6 +342,31 @@ public class ChannelService
                 await _db.SaveChangesAsync();
             }
 
+            if (associatedChatChannel is not null)
+            {
+                var chatValidation = await ValidateChannel(associatedChatChannel);
+                if (!chatValidation.Success)
+                {
+                    await tran.RollbackAsync();
+                    return TaskResult<Channel>.FromFailure(chatValidation.Message);
+                }
+
+                await _db.Channels.AddAsync(associatedChatChannel.ToDatabase());
+                await _db.SaveChangesAsync();
+
+                var mappedChatNodes = BuildAssociatedChatPermissionNodes(
+                    nodes,
+                    channel.PlanetId!.Value,
+                    channel.Id,
+                    associatedChatChannel.Id);
+
+                if (mappedChatNodes.Count > 0)
+                {
+                    await _db.PermissionsNodes.AddRangeAsync(mappedChatNodes.Select(x => x.ToDatabase()));
+                    await _db.SaveChangesAsync();
+                }
+            }
+
             await tran.CommitAsync();
         }
         catch (Exception e)
@@ -249,6 +379,11 @@ public class ChannelService
         if (hostedPlanet is not null)
         {
             hostedPlanet.UpsertChannel(channel);
+            if (associatedChatChannel is not null)
+            {
+                hostedPlanet.UpsertChannel(associatedChatChannel);
+                _coreHub.NotifyPlanetItemChange(channel.PlanetId!.Value, associatedChatChannel);
+            }
             await _planetPermissionService.HandleChannelTopologyChange(channel.PlanetId!.Value);
             _coreHub.NotifyPlanetItemChange(channel.PlanetId!.Value, channel);
         }
@@ -274,6 +409,9 @@ public class ChannelService
         
         if (old.ChannelType != updated.ChannelType)
             return TaskResult<Channel>.FromFailure("Cannot change ChannelType.");
+        
+        if (old.AssociatedChatChannelId != updated.AssociatedChatChannelId)
+            return TaskResult<Channel>.FromFailure("Cannot change AssociatedChatChannelId.");
 
         // Channel parent is being changed
         if (old.ParentId != updated.ParentId)
@@ -323,6 +461,73 @@ public class ChannelService
 
         // Response
         return TaskResult<Channel>.FromData(updated);
+    }
+
+    /// <summary>
+    /// Sets the primary (default) channel for a planet
+    /// </summary>
+    public async Task<TaskResult> SetPrimaryChannelAsync(long planetId, long channelId)
+    {
+        var hostedPlanet = await _hostedPlanetService.GetRequiredAsync(planetId);
+        var oldDefault = hostedPlanet.GetDefaultChannel();
+
+        if (oldDefault?.Id == channelId)
+            return TaskResult.SuccessResult;
+
+        var newDefault = hostedPlanet.GetChannel(channelId);
+        if (newDefault is null)
+            return new TaskResult(false, "Channel not found.");
+
+        if (newDefault.ChannelType != ChannelTypeEnum.PlanetChat)
+            return new TaskResult(false, "Primary channel must be a chat channel.");
+
+        if (newDefault.PlanetId != planetId)
+            return new TaskResult(false, "Channel does not belong to this planet.");
+
+        var trans = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            if (oldDefault is not null)
+            {
+                var oldDb = await _db.Channels.FindAsync(oldDefault.Id);
+                if (oldDb is not null)
+                {
+                    oldDb.IsDefault = false;
+                    await _db.SaveChangesAsync();
+                }
+            }
+
+            var newDb = await _db.Channels.FindAsync(channelId);
+            if (newDb is null)
+            {
+                await trans.RollbackAsync();
+                return new TaskResult(false, "Channel not found in database.");
+            }
+
+            newDb.IsDefault = true;
+            await _db.SaveChangesAsync();
+            await trans.CommitAsync();
+        }
+        catch (Exception e)
+        {
+            await trans.RollbackAsync();
+            _logger.LogError("{Time}:{Error}", DateTime.UtcNow.ToShortTimeString(), e.Message);
+            return new TaskResult(false, e.Message);
+        }
+
+        // Update cache and broadcast
+        if (oldDefault is not null)
+        {
+            oldDefault.IsDefault = false;
+            hostedPlanet.UpsertChannel(oldDefault);
+            _coreHub.NotifyPlanetItemChange(planetId, oldDefault);
+        }
+
+        newDefault.IsDefault = true;
+        hostedPlanet.UpsertChannel(newDefault);
+        _coreHub.NotifyPlanetItemChange(planetId, newDefault);
+
+        return TaskResult.SuccessResult;
     }
 
     /// <summary>
@@ -473,6 +678,20 @@ public class ChannelService
 
         return TaskResult.SuccessResult;
     }
+
+    private static TaskResult ValidateAssociatedChatLink(Channel channel)
+    {
+        if (channel.AssociatedChatChannelId is null)
+            return TaskResult.SuccessResult;
+
+        if (!IsPlanetCallChannelType(channel.ChannelType))
+            return TaskResult.FromFailure("Only planet voice/video channels can have an associated chat channel.");
+
+        if (channel.PlanetId is null)
+            return TaskResult.FromFailure("Associated chat channels can only be set on planet call channels.");
+
+        return TaskResult.SuccessResult;
+    }
     
     
     /// <summary>
@@ -580,6 +799,10 @@ public class ChannelService
         var descValid = ValidateDescription(channel.Description);
         if (!descValid.Success)
             return descValid;
+        
+        var associatedChatValid = ValidateAssociatedChatLink(channel);
+        if (!associatedChatValid.Success)
+            return associatedChatValid;
 
         var positionValid = await ValidateParentAndPosition(channel);
         if (!positionValid.Success)
@@ -998,6 +1221,135 @@ public class ChannelService
         }
 
         return TaskResult.SuccessResult;
+    }
+
+    public async Task<int> BackfillAssociatedCallChatsAsync()
+    {
+        var callChannelsMissingChat = await _db.Channels
+            .Where(x => !x.IsDeleted &&
+                        x.PlanetId != null &&
+                        (x.ChannelType == ChannelTypeEnum.PlanetVoice || x.ChannelType == ChannelTypeEnum.PlanetVideo))
+            .Where(x => _db.Planets.Any(p => p.Id == x.PlanetId))
+            .Where(x => x.AssociatedChatChannelId == null ||
+                        !_db.Channels.Any(y => y.Id == x.AssociatedChatChannelId && !y.IsDeleted))
+            .OrderBy(x => x.PlanetId)
+            .ThenBy(x => x.RawPosition)
+            .ToListAsync();
+
+        if (callChannelsMissingChat.Count == 0)
+            return 0;
+
+        var migratedCount = 0;
+        var changedPlanetIds = new HashSet<long>();
+
+        foreach (var dbCallChannel in callChannelsMissingChat)
+        {
+            var result = await CreateAssociatedChatFromExistingCallAsync(dbCallChannel);
+            if (!result.Success)
+            {
+                _logger.LogWarning(
+                    "Failed to create associated chat for call channel {ChannelId}: {Message}",
+                    dbCallChannel.Id,
+                    result.Message);
+                continue;
+            }
+
+            migratedCount++;
+            changedPlanetIds.Add(dbCallChannel.PlanetId!.Value);
+        }
+
+        foreach (var planetId in changedPlanetIds)
+        {
+            await _planetPermissionService.HandleChannelTopologyChange(planetId);
+        }
+
+        return migratedCount;
+    }
+
+    private async Task<TaskResult> CreateAssociatedChatFromExistingCallAsync(Valour.Database.Channel dbCallChannel)
+    {
+        if (dbCallChannel.PlanetId is null)
+            return TaskResult.FromFailure("Call channel is not a planet channel.");
+
+        await using var tran = await _db.Database.BeginTransactionAsync();
+
+        try
+        {
+            var associatedChatChannel = new Channel
+            {
+                Id = IdManager.Generate(),
+                Name = dbCallChannel.Name,
+                Description = $"Integrated chat for {dbCallChannel.Name}",
+                ChannelType = ChannelTypeEnum.PlanetChat,
+                LastUpdateTime = dbCallChannel.LastUpdateTime,
+                PlanetId = dbCallChannel.PlanetId,
+                ParentId = dbCallChannel.ParentId,
+                RawPosition = 0,
+                InheritsPerms = dbCallChannel.InheritsPerms,
+                IsDefault = false,
+                Nsfw = dbCallChannel.Nsfw
+            };
+
+            var chatValidation = await ValidateChannel(associatedChatChannel);
+            if (!chatValidation.Success && associatedChatChannel.ParentId is not null)
+            {
+                // Legacy data can contain invalid parent relationships.
+                // Fall back to root-level placement.
+                associatedChatChannel.ParentId = null;
+                associatedChatChannel.RawPosition = 0;
+                chatValidation = await ValidateChannel(associatedChatChannel);
+            }
+
+            if (!chatValidation.Success)
+            {
+                await tran.RollbackAsync();
+                return TaskResult.FromFailure(chatValidation.Message);
+            }
+
+            dbCallChannel.AssociatedChatChannelId = associatedChatChannel.Id;
+            _db.Channels.Update(dbCallChannel);
+            await _db.Channels.AddAsync(associatedChatChannel.ToDatabase());
+            await _db.SaveChangesAsync();
+
+            var sourceNodes = await _db.PermissionsNodes
+                .AsNoTracking()
+                .Where(x => x.TargetId == dbCallChannel.Id &&
+                            (x.TargetType == ChannelTypeEnum.PlanetVoice || x.TargetType == ChannelTypeEnum.PlanetVideo))
+                .Select(x => x.ToModel())
+                .ToListAsync();
+
+            var mappedNodes = BuildAssociatedChatPermissionNodes(
+                sourceNodes,
+                dbCallChannel.PlanetId.Value,
+                dbCallChannel.Id,
+                associatedChatChannel.Id);
+
+            if (mappedNodes.Count > 0)
+            {
+                await _db.PermissionsNodes.AddRangeAsync(mappedNodes.Select(x => x.ToDatabase()));
+                await _db.SaveChangesAsync();
+            }
+
+            await tran.CommitAsync();
+
+            if (_hostedPlanetService.IsHosted(dbCallChannel.PlanetId.Value))
+            {
+                var hostedPlanet = await _hostedPlanetService.GetRequiredAsync(dbCallChannel.PlanetId.Value);
+                hostedPlanet.UpsertChannel(dbCallChannel.ToModel());
+                hostedPlanet.UpsertChannel(associatedChatChannel);
+
+                _coreHub.NotifyPlanetItemChange(dbCallChannel.PlanetId.Value, dbCallChannel.ToModel());
+                _coreHub.NotifyPlanetItemChange(dbCallChannel.PlanetId.Value, associatedChatChannel);
+            }
+
+            return TaskResult.SuccessResult;
+        }
+        catch (Exception e)
+        {
+            await tran.RollbackAsync();
+            _logger.LogError(e, "Failed creating associated chat for call channel {ChannelId}", dbCallChannel.Id);
+            return TaskResult.FromFailure("Failed to create associated chat channel.");
+        }
     }
     
     private static int _migratedChannels = 0;

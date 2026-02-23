@@ -145,6 +145,7 @@ public static class ChannelPermissions
             case ChannelTypeEnum.PlanetCategory:
                 return CategoryPermissions.Permissions;
             case ChannelTypeEnum.PlanetVoice:
+            case ChannelTypeEnum.PlanetVideo:
                 return VoiceChannelPermissions.Permissions;
             default:
                 throw new Exception($"Invalid channel type {type}");

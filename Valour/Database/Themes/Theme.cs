@@ -12,6 +12,10 @@ public class Theme
     [InverseProperty("Theme")]
     [JsonIgnore]
     public virtual ICollection<ThemeVote> ThemeVotes { get; set; }
+
+    [InverseProperty("Theme")]
+    [JsonIgnore]
+    public virtual ICollection<ThemeAsset> ThemeAssets { get; set; }
     
     [Column("id")]
     public long Id { get; set; }

@@ -1,89 +1,156 @@
 @using Valour.Sdk.Models
 @inject ValourClient Client
 @inject IJSRuntime JsRuntime
+@inject AuthService AuthService
 
 @using Valour.Client.Components.Menus.Modals.Users.Edit
 
-<div class="sessions-container">
+<div class="security-container">
 
-    @if (Tokens == null)
-    {
-        <div class="loading">Loading sessions...</div>
-    }
-    else if (!Tokens.Any())
-    {
-        <div class="no-tokens">No active sessions found</div>
-    }
-    else
-    {
-        <div class="tokens-list">
-            @foreach (var token in Tokens)
-            {
-                var isExpired = IsExpired(token);
-                var expiresSoon = ExpiresSoon(token);
+    @* ===== Multi-Factor Authentication ===== *@
+    <div class="editor-section">
+        <h3 class="editor-section-title security">
+            <i class="bi bi-shield-lock"></i>
+            Multi-Factor Authentication
+        </h3>
 
-                <div class="token-item @(isExpired ? "expired" : expiresSoon ? "expires-soon" : "")">
-                    <div class="token-header">
-                        <div class="token-app">
-                            @if (token.AppId == "VALOUR")
-                            {
-                                <img src="../_content/Valour.Client/media/logo/logo-64.png" alt="Valour" class="app-icon" />
-                                <span class="app-name">Valour Web Client</span>
-                            }
-                            else if (_appInfoCache.TryGetValue(token.AppId, out var appInfo))
-                            {
-                                <img src="@appInfo.ImageUrl" alt="@appInfo.Name" class="app-icon" />
-                                <span class="app-name">@appInfo.Name</span>
-                            }
-                            else
-                            {
-                                <img src="../_content/Valour.Client/media/logo/logo-64.png" alt="OAuth App" class="app-icon" />
-                                <span class="app-name">OAuth App (@token.AppId)</span>
-                            }
-                        </div>
-                        <div class="token-actions">
-                            @if (!isExpired)
-                            {
-                                <button class="v-btn danger" @onclick="() => RevokeToken(token)">
-                                    Revoke
-                                </button>
-                            }
-                        </div>
+        <div class="toggle-item">
+            <div class="toggle-header">
+                <span class="toggle-title">MFA Status</span>
+                @if (_multiAuthMethods is null) {
+                    <div class="loading-indicator"></div>
+                } else if (_multiAuthMethods.Count > 0) {
+                    <span class="status-badge enabled">Enabled</span>
+                } else {
+                    <span class="status-badge">Disabled</span>
+                }
+            </div>
+
+            <p class="toggle-description">Protect your account with an additional security layer</p>
+
+            <div class="toggle-content">
+                @if (_multiAuthMethods is null) {
+                    <div class="loading-state">
+                        <div class="loading-indicator"></div>
+                        <p>Loading...</p>
                     </div>
-
-                    <div class="token-details">
-                        <div class="token-info">
-                            <span class="label">Created:</span>
-                            <span>@token.TimeCreated.ToString("MMM dd, yyyy 'at' HH:mm UTC")</span>
+                } else {
+                    @if (_multiAuthMethods.Count > 0) {
+                        <div class="mfa-status enabled">
+                            <i class="bi bi-shield-check"></i>
+                            <span>Your account is protected with multi-factor authentication</span>
                         </div>
-                        <div class="token-info">
-                            <span class="label">Expires:</span>
-                            <span class="@(isExpired ? "expired" : expiresSoon ? "expires-soon" : "")">
-                                @token.TimeExpires.ToString("MMM dd, yyyy 'at' HH:mm UTC")
+                        <button @onclick="@OnClickRemoveMfa" class="v-btn danger mt-2">Remove MFA</button>
+                    } else {
+                        <div class="mfa-status">
+                            <i class="bi bi-shield-exclamation"></i>
+                            <span>Adding MFA greatly improves your account security</span>
+                        </div>
+                        <button @onclick="@OnClickMfA" class="v-btn primary">Setup MFA</button>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+
+    @* ===== Password ===== *@
+    <div class="editor-section">
+        <h3 class="editor-section-title security">
+            <i class="bi bi-key"></i>
+            Password
+        </h3>
+
+        <div class="actions">
+            <button class="v-btn secondary" @onclick="@OnClickChangePassword">Change Password</button>
+        </div>
+    </div>
+
+    @* ===== Active Sessions ===== *@
+    <div class="editor-section">
+        <h3 class="editor-section-title">
+            <i class="bi bi-pc-display-horizontal"></i>
+            Active Sessions
+        </h3>
+
+        @if (Tokens == null)
+        {
+            <div class="loading">Loading sessions...</div>
+        }
+        else if (!Tokens.Any())
+        {
+            <div class="no-tokens">No active sessions found</div>
+        }
+        else
+        {
+            <div class="tokens-list">
+                @foreach (var token in Tokens)
+                {
+                    var isExpired = IsExpired(token);
+                    var expiresSoon = ExpiresSoon(token);
+
+                    <div class="token-item @(isExpired ? "expired" : expiresSoon ? "expires-soon" : "")">
+                        <div class="token-header">
+                            <div class="token-app">
+                                @if (token.AppId == "VALOUR")
+                                {
+                                    <img src="../_content/Valour.Client/media/logo/logo-64.png" alt="Valour" class="app-icon" />
+                                    <span class="app-name">Valour Web Client</span>
+                                }
+                                else if (_appInfoCache.TryGetValue(token.AppId, out var appInfo))
+                                {
+                                    <img src="@appInfo.ImageUrl" alt="@appInfo.Name" class="app-icon" />
+                                    <span class="app-name">@appInfo.Name</span>
+                                }
+                                else
+                                {
+                                    <img src="../_content/Valour.Client/media/logo/logo-64.png" alt="OAuth App" class="app-icon" />
+                                    <span class="app-name">OAuth App (@token.AppId)</span>
+                                }
+                            </div>
+                            <div class="token-actions">
                                 @if (!isExpired)
                                 {
-                                    <span class="time-remaining">(@GetTimeRemainingString(token) remaining)</span>
+                                    <button class="v-btn danger" @onclick="() => RevokeToken(token)">
+                                        Revoke
+                                    </button>
                                 }
-                            </span>
-                        </div>
-                        @if (token.Id == Client.AuthService.Token)
-                        {
-                            <div class="current-session">
-                                <span class="badge badge-primary">Current Session</span>
                             </div>
-                        }
-                    </div>
-                </div>
-            }
-        </div>
+                        </div>
 
-        <div class="token-actions-bulk">
-            <button class="v-btn warning" @onclick="RevokeAllOtherTokens">
-                Revoke All Other Sessions
-            </button>
-            <p class="help-text">This will log out all other devices except this one</p>
-        </div>
-    }
+                        <div class="token-details">
+                            <div class="token-info">
+                                <span class="label">Created:</span>
+                                <span>@token.TimeCreated.ToString("MMM dd, yyyy 'at' HH:mm UTC")</span>
+                            </div>
+                            <div class="token-info">
+                                <span class="label">Expires:</span>
+                                <span class="@(isExpired ? "expired" : expiresSoon ? "expires-soon" : "")">
+                                    @token.TimeExpires.ToString("MMM dd, yyyy 'at' HH:mm UTC")
+                                    @if (!isExpired)
+                                    {
+                                        <span class="time-remaining">(@GetTimeRemainingString(token) remaining)</span>
+                                    }
+                                </span>
+                            </div>
+                            @if (token.Id == Client.AuthService.Token)
+                            {
+                                <div class="current-session">
+                                    <span class="badge badge-primary">Current Session</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="token-actions-bulk">
+                <button class="v-btn warning" @onclick="RevokeAllOtherTokens">
+                    Revoke All Other Sessions
+                </button>
+                <p class="help-text">This will log out all other devices except this one</p>
+            </div>
+        }
+    </div>
 </div>
 
 @code {
@@ -93,6 +160,8 @@
     private List<AuthToken> Tokens { get; set; }
     private bool IsLoading { get; set; } = true;
     private Dictionary<string, PublicOauthAppData> _appInfoCache = new();
+
+    private List<string> _multiAuthMethods;
 
     private bool IsExpired(AuthToken token)
     {
@@ -118,7 +187,14 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadTokens();
+        // Load both sessions and MFA status in parallel
+        var tokensTask = LoadTokens();
+        var mfaTask = AuthService.GetMfaMethodsAsync();
+
+        await Task.WhenAll(tokensTask, mfaTask);
+
+        _multiAuthMethods = mfaTask.Result;
+        StateHasChanged();
     }
 
     private async Task LoadTokens()
@@ -167,7 +243,6 @@
     {
         if (token.Id == Client.AuthService.Token)
         {
-            // Show a simple info modal for current session
             ModalRoot.OpenModal<InfoModalComponent>(new InfoModalComponent.ModalParams(
             "Cannot Revoke Current Session",
             "You cannot revoke your current session. Please use the logout button instead.",
@@ -187,7 +262,7 @@
                 var result = await Client.AuthService.RevokeTokenAsync(token.Id);
                 if (result.Success)
                 {
-                    await LoadTokens(); // Refresh the list
+                    await LoadTokens();
                 }
                 return result;
             }
@@ -208,12 +283,52 @@
                 var result = await Client.AuthService.RevokeAllOtherTokensAsync();
                 if (result.Success)
                 {
-                    await LoadTokens(); // Refresh the list
+                    await LoadTokens();
                 }
                 return result;
             }
         };
 
         ModalRoot.OpenModal<RevokeTokenModal>(modalParams);
+    }
+
+    // ===== MFA =====
+
+    private void OnClickMfA()
+    {
+        ModalRoot.OpenModal<SetupMfaModal>(_multiAuthMethods);
+    }
+
+    private void OnClickRemoveMfa()
+    {
+        ModalRoot.OpenModal<PasswordConfirmModal>(new PasswordConfirmModal.Params()
+        {
+            Title = "Remove MFA?",
+            Description = "Enter your password to disable Multi-Factor Authentication",
+            OnConfirmAsync = async (password) =>
+            {
+                var result = await ToastContainer.Instance.WaitToastWithTaskResult(new ProgressToastData<TaskResult>()
+                {
+                    ProgressTask = AuthService.RemoveMfaAsync(password),
+                    Title = "Removing MFA",
+                    Message = "Verifying password...",
+                });
+
+                if (result.Success)
+                {
+                    _multiAuthMethods = new List<string>();
+                    StateHasChanged();
+                }
+
+                return result;
+            }
+        });
+    }
+
+    // ===== Password =====
+
+    private void OnClickChangePassword()
+    {
+        ModalRoot.OpenModal<ChangePasswordModal>();
     }
 }

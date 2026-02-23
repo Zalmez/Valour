@@ -43,19 +43,42 @@ public class UserApi
 
     [ValourRoute(HttpVerbs.Get, "api/users/{id}")]
     public static async Task<IResult> GetUserRouteAsync(
-        long id, 
-        UserService userService)
+        long id,
+        UserService userService,
+        TokenService tokenService,
+        UserBlockService userBlockService)
     {
         var user = await userService.GetAsync(id);
-        return user is null ? ValourResult.NotFound<User>() : Results.Json(user);
+        if (user is null)
+            return ValourResult.NotFound<User>();
+
+        // If authenticated, check for two-way blocks
+        var token = await tokenService.GetCurrentTokenAsync();
+        if (token is not null && token.UserId != id)
+        {
+            if (await userBlockService.IsTwoWayBlockedAsync(token.UserId, id))
+                return ValourResult.NotFound<User>();
+        }
+
+        return Results.Json(user);
     }
 
     [ValourRoute(HttpVerbs.Get, "api/users/byName/{name}")]
     public static async Task<IResult> GetUserByNameRouteAsync(
-        string name, 
+        string name,
         UserService userService)
     {
         var user = await userService.GetByNameAndTagAsync(name);
+        return user is null ? ValourResult.NotFound<User>() : Results.Json(user);
+    }
+
+    [ValourRoute(HttpVerbs.Get, "api/users/byNameAndTag/{name}/{tag}")]
+    public static async Task<IResult> GetUserByNameAndTagRouteAsync(
+        string name,
+        string tag,
+        UserService userService)
+    {
+        var user = await userService.GetUserAsync(name, tag);
         return user is null ? ValourResult.NotFound<User>() : Results.Json(user);
     }
 
@@ -96,7 +119,15 @@ public class UserApi
                 return ValourResult.Forbid("You must be a stargazer or above to change your tag.");
             }
         }
-        
+
+        // If we are changing star colors, make sure we are Stargazer Pro
+        if (user.StarColor1 != currentUser.StarColor1 || user.StarColor2 != currentUser.StarColor2)
+        {
+            if (currentUser.SubscriptionType != UserSubscriptionTypes.StargazerPro.Name)
+            {
+                return ValourResult.Forbid("You must be a Stargazer Pro subscriber to customize star colors.");
+            }
+        }
 
         var result = await userService.UpdateAsync(user);
         if (!result.Success)
@@ -738,26 +769,59 @@ public class UserApi
         return Results.Json(prefs.ToModel());
     }
 
+    [ValourRoute(HttpVerbs.Post, "api/users/me/preferences/dmPolicy/{policy}")]
+    [UserRequired]
+    public static async Task<IResult> SetDmPolicyAsync(
+        DmPolicy policy,
+        UserService userService,
+        ValourDb db)
+    {
+        if (!Enum.IsDefined(policy))
+            return ValourResult.BadRequest("Invalid DM policy.");
+
+        var userId = await userService.GetCurrentUserIdAsync();
+        var prefs = await EnsurePreferencesAsync(userId, db);
+        prefs.DmPolicy = policy;
+
+        await db.SaveChangesAsync();
+        return Results.Json(prefs.ToModel());
+    }
+
     private static async Task<DbUserPreferences> EnsurePreferencesAsync(long userId, ValourDb db)
     {
         var prefs = await db.UserPreferences.FindAsync(userId);
         if (prefs is not null)
             return prefs;
 
-        prefs = CreateDefaultPreferences(userId);
+        prefs = await CreateDefaultPreferencesAsync(userId, db);
         db.UserPreferences.Add(prefs);
         await db.SaveChangesAsync();
         return prefs;
     }
 
-    private static DbUserPreferences CreateDefaultPreferences(long userId)
+    private static async Task<DbUserPreferences> CreateDefaultPreferencesAsync(long userId, ValourDb db)
     {
+        var dmPolicy = DmPolicy.Everyone;
+
+        // Default under-18 accounts to FriendsOnly
+        var privateInfo = await db.PrivateInfos.FirstOrDefaultAsync(x => x.UserId == userId);
+        if (privateInfo?.BirthDate is not null)
+        {
+            var age = DateTime.UtcNow.Year - privateInfo.BirthDate.Value.Year;
+            if (privateInfo.BirthDate.Value > DateTime.UtcNow.AddYears(-age))
+                age--;
+
+            if (age < 18)
+                dmPolicy = DmPolicy.FriendsOnly;
+        }
+
         return new DbUserPreferences
         {
             Id = userId,
             ErrorReportingState = ErrorReportingState.Unset,
             NotificationVolume = NotificationPreferences.DefaultNotificationVolume,
-            EnabledNotificationSources = NotificationPreferences.AllNotificationSourcesMask
+            EnabledNotificationSources = NotificationPreferences.AllNotificationSourcesMask,
+            DmPolicy = dmPolicy
         };
     }
 }

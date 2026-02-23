@@ -1,4 +1,6 @@
 ﻿@using System.Net.Http.Headers
+@using Valour.Client.Utility
+@using Valour.Shared.Models
 @inject ValourClient Client
 
 <div class="settings-container">
@@ -19,11 +21,21 @@
             <textarea class="v-input" placeholder="Description" @bind="_descValue" @bind:event="oninput" maxlength="256"></textarea>
         </div>
 
+        <div class="form-group">
+            <label>Primary Chat Channel</label>
+            <CustomDropdown TItem="Channel"
+                            Items="_chatChannels"
+                            InitialItem="_selectedPrimaryChannel"
+                            SelectedItemChanged="OnPrimaryChannelChanged"
+                            ItemTemplate="ChannelFragments.ChannelPill"
+                            Placeholder="Select Primary Channel" />
+        </div>
+
         <ResultLabel Result="@_mainResult" />
-        
+
         <SearchTagFilterComponent InitialTags="Planet.Tags?.Select(t => t.Id).ToList() ?? new List<long>()" OnTagSelectToPlanet="HandleTagSelection"
                    OnTagRemoveToPlanet="HandleTagRemoved" ShowCreateButton="true"/>
-        
+
         <div class="actions mt-3">
             <button class="v-btn primary" @onclick="OnSaveChanges">Save Changes</button>
         </div>
@@ -81,11 +93,22 @@
     private InputFile _iconFileInput;
     private InputFile _bgFileInput;
 
+    private List<Channel> _chatChannels = new();
+    private Channel? _selectedPrimaryChannel;
+
     protected override Task OnInitializedAsync()
     {
         _nameValue = Planet.Name;
         _descValue = Planet.Description;
+        _chatChannels = Planet.Channels.Where(c => c.ChannelType == ChannelTypeEnum.PlanetChat).ToList();
+        _selectedPrimaryChannel = Planet.PrimaryChatChannel;
         StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private Task OnPrimaryChannelChanged(Channel channel)
+    {
+        _selectedPrimaryChannel = channel;
         return Task.CompletedTask;
     }
 
@@ -168,9 +191,19 @@
             Planet.Name = _nameValue;
             Planet.Description = _descValue;
         }
-        
+
         var result = await Planet.UpdateAsync();
         _mainResult = result;
+
+        if (result.Success && _selectedPrimaryChannel is not null &&
+            _selectedPrimaryChannel.Id != (Planet.PrimaryChatChannel?.Id ?? 0))
+        {
+            var primaryResult = await Planet.Node.PutAsync(
+                $"api/planets/{Planet.Id}/channels/primary/{_selectedPrimaryChannel.Id}", "");
+            if (!primaryResult.Success)
+                _mainResult = primaryResult;
+        }
+
         StateHasChanged();
     }
 

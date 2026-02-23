@@ -248,7 +248,27 @@ public class PlanetPermissionService
 
         var hostedPlanet = await _hostedPlanetService.GetRequiredAsync(member.PlanetId);
         if (member.UserId == hostedPlanet.Planet.OwnerId)
+        {
+            // Even owners who are minors should not see NSFW channels
+            var ownerHasNsfw = hostedPlanet.Channels.List.Any(c => c.Nsfw);
+            if (ownerHasNsfw)
+            {
+                var ownerBirthDate = await _db.PrivateInfos
+                    .Where(x => x.UserId == member.UserId)
+                    .Select(x => x.BirthDate)
+                    .FirstOrDefaultAsync();
+
+                if (ownerBirthDate.HasValue && ownerBirthDate.Value.AddYears(18) > DateTime.UtcNow)
+                {
+                    var filtered = hostedPlanet.Channels.List.Where(c => !c.Nsfw).ToList();
+                    var result = new SortedServerModelList<Channel, long>();
+                    result.Set(filtered);
+                    return result.Snapshot;
+                }
+            }
+
             return hostedPlanet.Channels;
+        }
 
         var cached = hostedPlanet.PermissionCache.GetChannelAccess(member.RoleMembership);
         if (cached is not null)
@@ -316,6 +336,19 @@ public class PlanetPermissionService
         var hostedPlanet = await _hostedPlanetService.GetRequiredAsync(member.PlanetId);
 
         var allChannels = hostedPlanet.Channels;
+
+        // Check if the member is a minor — minors should not see NSFW channels
+        bool isMinor = false;
+        if (allChannels.List.Any(c => c.Nsfw))
+        {
+            var birthDate = await _db.PrivateInfos
+                .Where(x => x.UserId == member.UserId)
+                .Select(x => x.BirthDate)
+                .FirstOrDefaultAsync();
+
+            isMinor = birthDate.HasValue && birthDate.Value.AddYears(18) > DateTime.UtcNow;
+        }
+
         var roles = RoleListPool.Get();
         bool isAdmin = false;
         foreach (var roleIndex in member.RoleMembership.EnumerateRoleIndices())
@@ -336,9 +369,18 @@ public class PlanetPermissionService
 
         if (isAdmin)
         {
-            var adminResult = hostedPlanet.PermissionCache.SetChannelAccess(member.RoleMembership, allChannels.List);
+            // Admins who are minors still shouldn't see NSFW channels
+            if (isMinor)
+            {
+                var filtered = allChannels.List.Where(c => !c.Nsfw).ToList();
+                var adminResult = hostedPlanet.PermissionCache.SetChannelAccess(member.RoleMembership, filtered);
+                RoleListPool.Return(roles);
+                return adminResult;
+            }
+
+            var adminResult2 = hostedPlanet.PermissionCache.SetChannelAccess(member.RoleMembership, allChannels.List);
             RoleListPool.Return(roles);
-            return adminResult;
+            return adminResult2;
         }
 
         // Sort roles by position ascending (lower position = higher authority = first)
@@ -347,6 +389,10 @@ public class PlanetPermissionService
         var accessIds = new HashSet<long>();
         foreach (var channel in allChannels.List)
         {
+            // Skip NSFW channels for underage users
+            if (channel.Nsfw && isMinor)
+                continue;
+
             if (channel.IsDefault)
             {
                 if (accessIds.Add(channel.Id))
@@ -398,6 +444,8 @@ public class PlanetPermissionService
                 ChannelTypeEnum.PlanetCategory => await GenerateChannelPermissionsAsync(member.RoleMembership, roles,
                     effectiveChannel, hostedPlanet, ChannelTypeEnum.PlanetCategory, generation),
                 ChannelTypeEnum.PlanetVoice => await GenerateChannelPermissionsAsync(member.RoleMembership, roles, effectiveChannel,
+                    hostedPlanet, ChannelTypeEnum.PlanetVoice, generation),
+                ChannelTypeEnum.PlanetVideo => await GenerateChannelPermissionsAsync(member.RoleMembership, roles, effectiveChannel,
                     hostedPlanet, ChannelTypeEnum.PlanetVoice, generation),
                 _ => throw new Exception("Invalid channel type!")
             };

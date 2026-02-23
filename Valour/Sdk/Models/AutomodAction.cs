@@ -20,6 +20,7 @@ public class AutomodAction : ClientPlanetModel<AutomodAction, Guid>, ISharedAuto
     public long? RoleId { get; set; }
     public DateTime? Expires { get; set; }
     public string Message { get; set; }
+    public long? ResponseChannelId { get; set; }
 
     [JsonConstructor]
     private AutomodAction() : base() { }

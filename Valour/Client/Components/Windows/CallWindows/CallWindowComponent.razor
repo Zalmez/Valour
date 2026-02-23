@@ -1,0 +1,227 @@
+@inherits WindowContentComponent<Channel>
+@using Channel = Valour.Sdk.Models.Channel
+@implements IAsyncDisposable
+@inject GlobalCallSessionService CallSession
+
+@if (_loading)
+{
+    <Loading Title="Loading call..." Spin="@true" />
+}
+else if (_callChannel is null)
+{
+    <div class="call-window-empty-state">
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        <span>Call channel is unavailable.</span>
+    </div>
+}
+else
+{
+    <div class="call-window-layout @(_dragging ? "dragging" : "")" @ref="_containerRef">
+        <div class="call-window-top" style="flex: 0 0 @(_splitPercent)%;">
+            <CallPanelComponent Channel="_callChannel"
+                                VideoMode="@(_callChannel.ChannelType == ChannelTypeEnum.PlanetVideo)" />
+        </div>
+        <div class="call-window-splitter" @onmousedown="OnSplitterMouseDown"></div>
+        <div class="call-window-bottom" style="flex: 1 1 0%;">
+            @if (_chatChannel is null || _embeddedChatContent is null)
+            {
+                <div class="call-window-empty-state">
+                    <i class="bi bi-chat-dots"></i>
+                    <span>No associated chat channel is available for this call.</span>
+                </div>
+            }
+            else
+            {
+                <ChatWindowComponent WindowCtx="_embeddedChatContent"
+                                     Data="_chatChannel"
+                                     Embedded="true"
+                                     HideHeader="true"
+                                     HideMemberList="true" />
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private Channel? _callChannel;
+    private Channel? _chatChannel;
+    private ChatWindowComponent.Content? _embeddedChatContent;
+    private bool _loading = true;
+
+    private ElementReference _containerRef;
+    private float _splitRatio = 0.62f;
+    private string _splitPercent => (_splitRatio * 100f).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+    private bool _dragging;
+    private float _containerHeight;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _callChannel = Data;
+        _chatChannel = null;
+        _embeddedChatContent = null;
+
+        if (_callChannel is null)
+        {
+            _loading = false;
+            return;
+        }
+
+        try
+        {
+            var associatedChatId = _callChannel.AssociatedChatChannelId;
+
+            // Backward compatibility: if older caches don't include the link yet,
+            // try to discover the associated chat by inverse lookup in local cache.
+            if (associatedChatId is null && _callChannel.PlanetId is not null && _callChannel.Planet is not null)
+            {
+                associatedChatId = _callChannel.Planet.Channels
+                    .FirstOrDefault(x => x.AssociatedChatChannelId == _callChannel.Id)
+                    ?.Id;
+            }
+
+            if (associatedChatId is not null)
+            {
+                if (_callChannel.PlanetId is not null)
+                {
+                    if (_callChannel.Planet?.Channels.TryGet(associatedChatId.Value, out var cachedChannel) == true)
+                    {
+                        _chatChannel = cachedChannel;
+                    }
+                    else if (_callChannel.Planet is not null)
+                    {
+                        _chatChannel = await _callChannel.Planet
+                            .FetchChannelAsync(associatedChatId.Value)
+                            .AsTask()
+                            .WaitAsync(TimeSpan.FromSeconds(4));
+                    }
+                }
+                else
+                {
+                    _chatChannel = await _callChannel.Client.ChannelService
+                        .FetchDirectChannelAsync(associatedChatId.Value)
+                        .AsTask()
+                        .WaitAsync(TimeSpan.FromSeconds(4));
+                }
+            }
+
+            if (_chatChannel is not null)
+            {
+                _embeddedChatContent = new ChatWindowComponent.Content
+                {
+                    Icon = await _chatChannel.GetIconAsync(),
+                    Title = await _chatChannel.GetTitleAsync(),
+                    PlanetId = _chatChannel.PlanetId,
+                    AutoScroll = false,
+                    Data = _chatChannel
+                };
+            }
+        }
+        catch
+        {
+            // Keep the window alive; show top call pane and empty chat pane fallback.
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OnSplitterMouseDown(MouseEventArgs e)
+    {
+        var rect = await BrowserUtils.GetElementBoundingRectAsync(_containerRef);
+        _containerHeight = (float)rect.Height;
+        if (_containerHeight <= 0)
+            return;
+
+        _dragging = true;
+        MouseListener.SubscribeMouseMove(OnSplitterMouseMove);
+        MouseListener.SubscribeMouseUp(OnSplitterMouseUp);
+        await ReRender();
+    }
+
+    private async Task OnSplitterMouseMove(MousePosition e)
+    {
+        if (_containerHeight <= 0)
+            return;
+
+        _splitRatio += e.DeltaY / _containerHeight;
+        _splitRatio = Math.Clamp(_splitRatio, 0.2f, 0.8f);
+        await ReRender();
+    }
+
+    private async Task OnSplitterMouseUp(MouseUpEvent e)
+    {
+        _dragging = false;
+        MouseListener.UnsubscribeMouseMove(OnSplitterMouseMove);
+        MouseListener.UnsubscribeMouseUp(OnSplitterMouseUp);
+        await ReRender();
+    }
+
+    public class StateData
+    {
+        public long? PlanetId { get; set; }
+        public long ChannelId { get; set; }
+    }
+
+    public class Content : WindowContent<CallWindowComponent, Channel>
+    {
+        public override async Task ImportData(string data, ValourClient client)
+        {
+            var imported = JsonSerializer.Deserialize<StateData>(data);
+            if (imported is null)
+                return;
+
+            if (imported.PlanetId is not null)
+            {
+                var planet = await client.PlanetService.FetchPlanetAsync(imported.PlanetId.Value);
+                Data = await planet.FetchChannelAsync(imported.ChannelId);
+            }
+            else
+            {
+                Data = await client.ChannelService.FetchDirectChannelAsync(imported.ChannelId);
+            }
+        }
+
+        public override string ExportData(ValourClient client)
+        {
+            if (Data is null)
+                return null;
+
+            return JsonSerializer.Serialize(new StateData
+            {
+                PlanetId = Data.PlanetId,
+                ChannelId = Data.Id
+            });
+        }
+    }
+
+    public static async Task<Content> GetDefaultContent(Channel channel)
+    {
+        return new Content
+        {
+            Icon = await channel.GetIconAsync(),
+            Title = await channel.GetTitleAsync(),
+            PlanetId = channel.PlanetId,
+            AutoScroll = false,
+            Data = channel
+        };
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        var windowChannelId = (_callChannel ?? Data)?.Id;
+        if (windowChannelId is null)
+            return;
+
+        if (CallSession.ActiveChannel?.Id != windowChannelId.Value)
+            return;
+
+        await CallSession.LeaveAsync(clearChannel: true);
+    }
+}

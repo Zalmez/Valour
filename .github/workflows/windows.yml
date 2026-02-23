@@ -93,23 +93,12 @@ jobs:
           throw "Expected Blazor static assets were not found in publish output."
         }
 
-    - name: Generate launcher icon
+    - name: Verify launcher icon
       shell: pwsh
       run: |
-        Add-Type -AssemblyName System.Drawing
-        $pngPath = Join-Path $PWD "Valour/Client.Maui/Resources/AppIcon/appicon.png"
-        $icoPath = Join-Path $PWD "Valour/BuildTools/WindowsLauncher/valour-launcher.ico"
-
-        $bitmap = [System.Drawing.Bitmap]::FromFile($pngPath)
-        $icon = [System.Drawing.Icon]::FromHandle($bitmap.GetHicon())
-        $stream = [System.IO.File]::Create($icoPath)
-        $icon.Save($stream)
-        $stream.Dispose()
-        $icon.Dispose()
-        $bitmap.Dispose()
-
+        $icoPath = Join-Path $PWD "Valour/Client.Maui/Platforms/Windows/trayicon.ico"
         if (!(Test-Path $icoPath)) {
-          throw "Launcher icon was not created."
+          throw "Launcher icon was not found."
         }
 
     - name: Create payload archive
@@ -121,6 +110,8 @@ jobs:
         dotnet publish Valour/BuildTools/WindowsLauncher/Valour.WindowsLauncher.csproj
         -c Release
         -r win-x64
+        -p:Version=${{ needs.check-version.outputs.version }}
+        -p:InformationalVersion=v${{ needs.check-version.outputs.version }}
         -o ./artifacts/launcher
 
     - name: Build release executable
@@ -128,8 +119,10 @@ jobs:
       run: |
         $launcherPath = Join-Path $PWD "artifacts/launcher/Valour.exe"
         $payloadPath = Join-Path $PWD "artifacts/valour-payload.zip"
-        $outputPath = Join-Path $PWD "artifacts/Valour.exe"
+        $launcherOutputPath = Join-Path $PWD "artifacts/ValourLauncher.exe"
+        $outputPath = Join-Path $PWD "artifacts/Valour-full.exe"
 
+        Copy-Item $launcherPath $launcherOutputPath -Force
         Copy-Item $launcherPath $outputPath -Force
 
         $payloadLength = (Get-Item $payloadPath).Length
@@ -145,7 +138,18 @@ jobs:
         $outStream.Dispose()
 
         if (!(Test-Path $outputPath)) {
-          throw "Final release executable was not created."
+          throw "Final full release executable was not created."
+        }
+        if (!(Test-Path $launcherOutputPath)) {
+          throw "Final launcher executable was not created."
+        }
+
+    - name: Zip full release executable
+      shell: pwsh
+      run: |
+        Compress-Archive -Path ./artifacts/Valour-full.exe -DestinationPath ./artifacts/Valour-full.zip -Force
+        if (!(Test-Path "./artifacts/Valour-full.zip")) {
+          throw "Final full release archive was not created."
         }
 
     # TODO: Enable once SSL.com cert is validated and eSigner is enrolled
@@ -157,13 +161,15 @@ jobs:
     #     password: ${{ secrets.ES_PASSWORD }}
     #     credential_id: ${{ secrets.ES_CREDENTIAL_ID }}
     #     totp_secret: ${{ secrets.ES_TOTP_SECRET }}
-    #     file_path: ./artifacts/Valour.exe
+    #     file_path: ./artifacts/Valour-full.exe
 
     - name: Create or update GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ needs.check-version.outputs.version }}
         name: Valour v${{ needs.check-version.outputs.version }}
-        files: ./artifacts/Valour.exe
+        files: |
+          ./artifacts/Valour-full.zip
+          ./artifacts/ValourLauncher.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -253,6 +253,50 @@ public class HostedPlanet : ServerModel<long>
         _emojis.Remove(id);
     }
 
+    // Voice Participants //
+
+    private readonly ConcurrentDictionary<long, ConcurrentHashSet<long>> _voiceParticipants = new();
+
+    public void AddVoiceParticipant(long channelId, long userId)
+    {
+        var set = _voiceParticipants.GetOrAdd(channelId, _ => new ConcurrentHashSet<long>());
+        set.Add(userId);
+    }
+
+    public void RemoveVoiceParticipant(long channelId, long userId)
+    {
+        if (_voiceParticipants.TryGetValue(channelId, out var set))
+        {
+            set.Remove(userId);
+        }
+    }
+
+    public Dictionary<long, List<long>> GetAllVoiceParticipants()
+    {
+        var result = new Dictionary<long, List<long>>();
+        foreach (var kvp in _voiceParticipants)
+        {
+            var list = kvp.Value.ToList();
+            if (list.Count > 0)
+                result[kvp.Key] = list;
+        }
+        return result;
+    }
+
+    public void SetVoiceParticipants(long channelId, List<long> userIds)
+    {
+        if (userIds.Count == 0)
+        {
+            _voiceParticipants.TryRemove(channelId, out _);
+            return;
+        }
+
+        var set = _voiceParticipants.GetOrAdd(channelId, _ => new ConcurrentHashSet<long>());
+        set.Clear();
+        foreach (var userId in userIds)
+            set.Add(userId);
+    }
+
     // Channel Inheritance //
 
     /// <summary>

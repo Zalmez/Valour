@@ -82,7 +82,8 @@
                                                        Channel="dm.Channel"
                                                        OtherUser="dm.OtherUser"
                                                        IsUnread="dm.IsUnread"
-                                                       Notifications="dm.Notifications" />
+                                                       Notifications="dm.Notifications"
+                                                       WindowCtx="WindowCtx" />
                         }
                     }
                 </div>
@@ -313,7 +314,7 @@
 
     private async Task OnClickDiscover()
     {
-        await WindowService.OpenWindowAtFocused(new DiscoveryPageWindowContent());
+        await WindowService.OpenWindowAtFocused(new DiscoveryPageWindowContent(), WindowCtx.Tab);
     }
 
     private void OnClickAddFriend()

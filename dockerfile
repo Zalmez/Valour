@@ -11,7 +11,7 @@ WORKDIR /app
 
 # We need python for some reason
 RUN apt-get update && apt-get install -y python3
-RUN apt-get install libatomic1
+RUN apt-get install -y libatomic1
 
 # Restore the .NET dependencies
 FROM dependencies AS dotnet-restore

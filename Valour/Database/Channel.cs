@@ -78,7 +78,17 @@ public class Channel : ISharedChannel
     /// True if this is the default chat channel
     /// </summary>
     public bool IsDefault { get; set; }
+
+    /// <summary>
+    /// If this channel is marked as NSFW
+    /// </summary>
+    public bool Nsfw { get; set; }
     
+    /// <summary>
+    /// For call channels, the associated chat channel id
+    /// </summary>
+    public long? AssociatedChatChannelId { get; set; }
+
     // Used for migrations
     public int Version { get; set; }
 
@@ -129,7 +139,13 @@ public class Channel : ISharedChannel
             
             e.Property(x => x.IsDefault)
                 .HasColumnName("is_default");
-            
+
+            e.Property(x => x.Nsfw)
+                .HasColumnName("nsfw");
+
+            e.Property(x => x.AssociatedChatChannelId)
+                .HasColumnName("associated_chat_channel_id");
+
             e.Property(x => x.Version)
                 .HasColumnName("version");
             
@@ -163,6 +179,7 @@ public class Channel : ISharedChannel
             e.HasIndex(x => x.ParentId);
             e.HasIndex(x => x.RawPosition);
             e.HasIndex(x => x.IsDeleted);
+            e.HasIndex(x => x.AssociatedChatChannelId);
         });
     }
 }

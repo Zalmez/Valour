@@ -144,6 +144,16 @@ public class Channel : ClientPlanetModel<Channel, long>, ISharedChannel
     public bool IsDefault { get; set; }
 
     /// <summary>
+    /// If this channel is marked as NSFW
+    /// </summary>
+    public bool Nsfw { get; set; }
+
+    /// <summary>
+    /// For call channels, the associated chat channel id.
+    /// </summary>
+    public long? AssociatedChatChannelId { get; set; }
+
+    /// <summary>
     /// Used to limit typing updates
     /// </summary>
     private DateTime _lastTypingUpdateSend = DateTime.UtcNow;
@@ -244,6 +254,16 @@ public class Channel : ClientPlanetModel<Channel, long>, ISharedChannel
     public bool IsChatChannel => ISharedChannel.ChatChannelTypes.Contains(ChannelType);
 
     /// <summary>
+    /// Returns if this channel is any call channel.
+    /// </summary>
+    public bool IsCallChannel => ISharedChannel.CallChannelTypes.Contains(ChannelType);
+
+    /// <summary>
+    /// Returns if this channel is a planet call channel (voice/video).
+    /// </summary>
+    public bool IsPlanetCallChannel => ISharedChannel.IsPlanetCallType(ChannelType);
+
+    /// <summary>
     /// Returns if the channel is unread
     /// </summary>
     public bool DetermineUnread()
@@ -303,7 +323,7 @@ public class Channel : ClientPlanetModel<Channel, long>, ISharedChannel
     public async ValueTask<PermissionsNode> GetPermNodeAsync(long roleId, ChannelTypeEnum? type = null, bool refresh = false)
     {
         if (type is null)
-            type = ChannelType;
+            type = ISharedChannel.GetPermissionTargetType(ChannelType);
 
         PermissionsNodeKey key = new(Id, roleId, type.Value);
 
@@ -331,7 +351,8 @@ public class Channel : ClientPlanetModel<Channel, long>, ISharedChannel
         "Direct Chat",
         "Direct Voice",
         "Group Chat",
-        "Group Voice"
+        "Group Voice",
+        "Planet Video"
     };
 
     /// <summary>
@@ -434,7 +455,7 @@ public class Channel : ClientPlanetModel<Channel, long>, ISharedChannel
 
             PlanetId = PlanetId.Value,
             TargetId = Id,
-            TargetType = ChannelType
+            TargetType = ISharedChannel.GetPermissionTargetType(ChannelType)
         };
 
         if (member is null)
@@ -450,14 +471,15 @@ public class Channel : ClientPlanetModel<Channel, long>, ISharedChannel
         }
         
         var source = GetPermissionSource() ?? this;
-        var permissionSet = ChannelPermissions.GetChannelPermissionSet(ChannelType);
+        var permissionType = ISharedChannel.GetPermissionTargetType(ChannelType);
+        var permissionSet = ChannelPermissions.GetChannelPermissionSet(permissionType);
 
         // Should be in order of most power -> least,
         // so we reverse it here
         for (int i = member.Roles.Count - 1; i >= 0; i--)
         {
             var role = member.Roles[i];
-            var node = await source.GetPermNodeAsync(role.Id, ChannelType, forceRefresh);
+            var node = await source.GetPermNodeAsync(role.Id, permissionType, forceRefresh);
 
             if (node is null)
                 continue;

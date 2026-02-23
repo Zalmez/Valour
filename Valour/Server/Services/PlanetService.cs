@@ -328,7 +328,8 @@ public class PlanetService
         data.Channels = channels?.List ?? [];
         data.Roles = hostedPlanet.Roles.List;
         data.Emojis = hostedPlanet.Emojis.List;
-        
+        data.VoiceParticipants = hostedPlanet.GetAllVoiceParticipants();
+
         return data;
     }
     

@@ -87,6 +87,6 @@
     {
         var channel = await ChannelService.FetchDmChannelAsync(Friend.Id, create: true);
         var newWindowContent = await ChatWindowComponent.GetDefaultContent(channel);
-        await WindowService.OpenWindowAtFocused(newWindowContent);
+        await WindowService.OpenWindowAtFocused(newWindowContent, WindowCtx.Tab);
     }
 }

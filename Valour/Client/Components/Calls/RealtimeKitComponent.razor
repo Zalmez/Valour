@@ -3,6 +3,7 @@
 
 @code {
     private IJSObjectReference? _jsModule;
+    private static readonly TimeSpan DisposeInteropTimeout = TimeSpan.FromSeconds(2);
 
     private async Task<IJSObjectReference> GetModuleAsync()
     {
@@ -104,6 +105,12 @@
         return await module.InvokeAsync<InputMic[]>("getAudioInputDevices");
     }
 
+    public async Task<InputMic[]> GetVideoInputDevicesAsync()
+    {
+        var module = await GetModuleAsync();
+        return await module.InvokeAsync<InputMic[]>("getVideoInputDevices");
+    }
+
     public async Task<string> GetMicrophonePermissionStateAsync()
     {
         var module = await GetModuleAsync();
@@ -114,6 +121,30 @@
     {
         var module = await GetModuleAsync();
         return await module.InvokeAsync<bool>("requestMicrophonePermission");
+    }
+
+    public async Task<string> GetCameraPermissionStateAsync()
+    {
+        var module = await GetModuleAsync();
+        return await module.InvokeAsync<string>("getCameraPermissionState");
+    }
+
+    public async Task<bool> RequestCameraPermissionAsync()
+    {
+        var module = await GetModuleAsync();
+        return await module.InvokeAsync<bool>("requestCameraPermission");
+    }
+
+    public async Task<bool> RequestPlatformVideoPermissionAsync()
+    {
+        var module = await GetModuleAsync();
+        return await module.InvokeAsync<bool>("requestPlatformVideoPermission");
+    }
+
+    public async Task<bool> IsScreenShareSupportedAsync()
+    {
+        var module = await GetModuleAsync();
+        return await module.InvokeAsync<bool>("isScreenShareSupported");
     }
 
     public async Task<RealtimeKitSelfState?> GetSelfStateAsync()
@@ -135,6 +166,15 @@
 
         var module = await GetModuleAsync();
         await module.InvokeVoidAsync("syncParticipantAudio", elementId, participantId, volume);
+    }
+
+    public async Task SyncParticipantVideoAsync(string elementId, string participantId, bool preferScreenShare = true)
+    {
+        if (string.IsNullOrWhiteSpace(elementId) || string.IsNullOrWhiteSpace(participantId))
+            return;
+
+        var module = await GetModuleAsync();
+        await module.InvokeVoidAsync("syncParticipantVideo", elementId, participantId, preferScreenShare);
     }
 
     public async Task<T?> InvokeAsync<T>(string path, params object?[] args)
@@ -162,12 +202,36 @@
 
         try
         {
-            await _jsModule.InvokeVoidAsync("reset");
-            await _jsModule.DisposeAsync();
+            await _jsModule.InvokeVoidAsync("reset").AsTask().WaitAsync(DisposeInteropTimeout);
         }
         catch (JSDisconnectedException)
         {
             // Ignore if the runtime is already disconnected.
+        }
+        catch (TimeoutException)
+        {
+            // Ignore if the JS runtime is busy; disposal should not block UI teardown.
+        }
+        catch (ObjectDisposedException)
+        {
+            // Ignore if runtime or module was disposed concurrently.
+        }
+
+        try
+        {
+            await _jsModule.DisposeAsync().AsTask().WaitAsync(DisposeInteropTimeout);
+        }
+        catch (JSDisconnectedException)
+        {
+            // Ignore if the runtime is already disconnected.
+        }
+        catch (TimeoutException)
+        {
+            // Ignore if JS runtime doesn't respond quickly during teardown.
+        }
+        catch (ObjectDisposedException)
+        {
+            // Ignore if runtime or module was disposed concurrently.
         }
 
         _jsModule = null;

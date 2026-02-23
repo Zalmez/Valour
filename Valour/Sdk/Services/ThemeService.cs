@@ -66,7 +66,9 @@ public class ThemeService : ServiceBase
             PastelCyan = serverMeta.PastelCyan,
             AuthorName = serverMeta.AuthorName,
             Upvotes = serverMeta.Upvotes,
-            Downvotes = serverMeta.Downvotes
+            Downvotes = serverMeta.Downvotes,
+            MySentiment = serverMeta.MySentiment,
+            MyVoteId = serverMeta.MyVoteId
         }).ToList();
     }
 }

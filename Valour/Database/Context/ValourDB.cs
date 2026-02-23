@@ -66,6 +66,11 @@ public partial class ValourDb : DbContext
     /// Table for Valour user friends
     /// </summary>
     public DbSet<UserFriend> UserFriends { get; set; }
+
+    /// <summary>
+    /// Table for Valour user blocks
+    /// </summary>
+    public DbSet<UserBlock> UserBlocks { get; set; }
     
     /// <summary>
     /// Table for user Tenor favorites
@@ -150,6 +155,11 @@ public partial class ValourDb : DbContext
     public DbSet<AutomodLog> AutomodLogs { get; set; }
 
     /// <summary>
+    /// Table for moderation audit logs
+    /// </summary>
+    public DbSet<ModerationAuditLog> ModerationAuditLogs { get; set; }
+
+    /// <summary>
     /// Table for planet invites
     /// </summary>
     public DbSet<StatObject> Stats { get; set; }
@@ -224,6 +234,7 @@ public partial class ValourDb : DbContext
     
     public DbSet<Theme> Themes { get; set; }
     public DbSet<ThemeVote> ThemeVotes { get; set; }
+    public DbSet<ThemeAsset> ThemeAssets { get; set; }
     
     public ValourDb()
     {
@@ -286,11 +297,13 @@ public partial class ValourDb : DbContext
         AutomodTrigger.SetupDbModel(modelBuilder);
         AutomodAction.SetupDbModel(modelBuilder);
         AutomodLog.SetupDbModel(modelBuilder);
+        ModerationAuditLog.SetupDbModel(modelBuilder);
 
         Valour.Database.NodeStats.SetupDbModel(modelBuilder);
         OldPlanetRoleMember.SetupDbModel(modelBuilder);
         
         CdnBucketItem.SetupDbModel(modelBuilder);
+        Transaction.SetupDbModel(modelBuilder);
     }
 }
 

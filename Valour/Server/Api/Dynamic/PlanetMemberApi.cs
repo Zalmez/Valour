@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Valour.Shared.Authorization;
+using Valour.Shared.Models.Staff;
 
 namespace Valour.Server.Api.Dynamic;
 
@@ -115,7 +116,8 @@ public class PlanetMemberApi
     [UserRequired(UserPermissionsEnum.Membership)]
     public static async Task<IResult> DeleteRouteAsync(
         long id,
-        PlanetMemberService memberService)
+        PlanetMemberService memberService,
+        ModerationAuditService moderationAuditService)
     {
         var targetMember = await memberService.GetAsync(id);
         if (targetMember is null)
@@ -140,6 +142,17 @@ public class PlanetMemberApi
         if (!result.Success)
             return ValourResult.Problem("Failed to remove member. An unexpected error occured.");
 
+        if (selfMember.UserId != targetMember.UserId)
+        {
+            await moderationAuditService.LogAsync(
+                targetMember.PlanetId,
+                ModerationActionSource.Manual,
+                ModerationActionType.Kick,
+                actorUserId: selfMember.UserId,
+                targetUserId: targetMember.UserId,
+                targetMemberId: targetMember.Id);
+        }
+
         return Results.NoContent();
     }
     
@@ -151,7 +164,8 @@ public class PlanetMemberApi
         long memberId,
         long roleId,
         PlanetMemberService memberService,
-        PlanetRoleService roleService)
+        PlanetRoleService roleService,
+        ModerationAuditService moderationAuditService)
     {
         var targetMember = await memberService.GetAsync(memberId);
         if (targetMember is null)
@@ -180,6 +194,15 @@ public class PlanetMemberApi
         if (!result.Success)
             return ValourResult.BadRequest(result.Message);
 
+        await moderationAuditService.LogAsync(
+            planetId,
+            ModerationActionSource.Manual,
+            ModerationActionType.AddRole,
+            actorUserId: selfMember.UserId,
+            targetUserId: targetMember.UserId,
+            targetMemberId: targetMember.Id,
+            details: $"Role: {role.Name} ({role.Id})");
+
         return Results.Ok();
     }
 
@@ -191,7 +214,8 @@ public class PlanetMemberApi
         long memberId,
         long roleId,
         PlanetMemberService memberService,
-        PlanetRoleService roleService)
+        PlanetRoleService roleService,
+        ModerationAuditService moderationAuditService)
     {
         var targetMember = await memberService.GetAsync(memberId);
         if (targetMember is null)
@@ -218,6 +242,15 @@ public class PlanetMemberApi
         var result = await memberService.RemoveRoleAsync(planetId, targetMember.Id, role.Id);
         if (!result.Success)
             return ValourResult.BadRequest(result.Message);
+
+        await moderationAuditService.LogAsync(
+            planetId,
+            ModerationActionSource.Manual,
+            ModerationActionType.RemoveRole,
+            actorUserId: selfMember.UserId,
+            targetUserId: targetMember.UserId,
+            targetMemberId: targetMember.Id,
+            details: $"Role: {role.Name} ({role.Id})");
 
         return Results.NoContent();
     }

@@ -10,12 +10,14 @@ public class StaffService
 {
     private readonly ValourDb _db;
     private readonly UserService _userService;
+    private readonly TokenService _tokenService;
     private readonly ILogger<StaffService> _logger;
-    
-    public StaffService(ValourDb db, UserService userService, ILogger<StaffService> logger)
+
+    public StaffService(ValourDb db, UserService userService, TokenService tokenService, ILogger<StaffService> logger)
     {
         _db = db;
         _userService = userService;
+        _tokenService = tokenService;
         _logger = logger;
     }
 
@@ -103,15 +105,18 @@ public class StaffService
         var user = await _db.Users.FindAsync(userId);
         if (user is null)
             return TaskResult.FromFailure("Account not found", errorCode: 404);
-        
+
         user.Disabled = value;
-        
+
         await _db.SaveChangesAsync();
-        
-        // Also remove all tokens
-        var tokens = _db.AuthTokens.Where(x => x.UserId == userId);
+
+        // Also remove all tokens and evict them from the in-memory cache
+        var tokens = await _db.AuthTokens.Where(x => x.UserId == userId).ToListAsync();
+        foreach (var token in tokens)
+            _tokenService.RemoveFromQuickCache(token.Id);
+
         _db.AuthTokens.RemoveRange(tokens);
-        
+
         await _db.SaveChangesAsync();
 
         return TaskResult.SuccessResult;

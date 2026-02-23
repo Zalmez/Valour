@@ -73,7 +73,9 @@ public class Node : ServiceBase // each node acts like a service
 
     public async Task<TaskResult> InitializeAsync(string name, bool isPrimary = false)
     {
-        Name = name;
+        Name = name?.Trim();
+        if (string.IsNullOrWhiteSpace(Name))
+            return TaskResult.FromFailure("Node name was empty.");
         IsPrimary = isPrimary;
 
         var logOptions = new LogOptions(

@@ -35,6 +35,7 @@ public class ValourClient
     public readonly UserService UserService;
     public readonly ChannelStateService ChannelStateService;
     public readonly FriendService FriendService;
+    public readonly BlockService BlockService;
     public readonly MessageService MessageService;
     public readonly NodeService NodeService;
     public readonly PlanetService PlanetService;
@@ -52,6 +53,7 @@ public class ValourClient
     public readonly ThemeService ThemeService;
     public readonly UnreadService UnreadService;
     public readonly PlanetTagService PlanetTagService;
+    public readonly VoiceStateService VoiceStateService;
 
     /// <summary>
     /// The base address the client is connected to
@@ -110,6 +112,7 @@ public class ValourClient
         NodeService = new NodeService(this);
         UserService = new UserService(this);
         FriendService = new FriendService(this);
+        BlockService = new BlockService(this);
         MessageService = new MessageService(this);
         PlanetService = new PlanetService(this);
         ChannelService = new ChannelService(this);
@@ -127,6 +130,7 @@ public class ValourClient
         ThemeService = new ThemeService(this);
         UnreadService = new UnreadService(this);
         PlanetTagService = new PlanetTagService(this);
+        VoiceStateService = new VoiceStateService(this);
 
         var tenorHttpClient = new HttpClient();
         tenorHttpClient.BaseAddress = new Uri("https://tenor.googleapis.com/v2/");
@@ -135,15 +139,13 @@ public class ValourClient
     
     /// <summary>
     /// Sets the origin of the client. Should only be called
-    /// before nodes are initialized. Origins must NOT end in a slash.
+    /// before nodes are initialized. Origin is normalized to include a trailing slash.
     /// </summary>
     public void SetOrigin(string origin)
     {
-        // Cloudflare pages. Use main api endpoint.
-        if (origin.Contains(".valour.pages.dev"))
-            origin = "https://app.valour.gg";
-        
         BaseAddress = origin;
+        if (!BaseAddress.EndsWith('/'))
+            BaseAddress += '/';
         _httpClient = new HttpClient()
         {
             BaseAddress = new Uri(BaseAddress)
@@ -194,6 +196,7 @@ public class ValourClient
         {
             // LoadChannelStatesAsync(), this is already done by the Home component
             FriendService.FetchFriendsAsync(),
+            BlockService.FetchBlocksAsync(),
             PlanetService.FetchJoinedPlanetsAsync(),
             TenorService.LoadTenorFavoritesAsync(),
             ChannelService.LoadDmChannelsAsync(),

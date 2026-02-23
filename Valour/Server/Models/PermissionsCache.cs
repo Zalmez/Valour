@@ -127,6 +127,7 @@ public class PlanetPermissionsCache
             ChannelTypeEnum.PlanetChat => _channelPermissionCachesByType[0],
             ChannelTypeEnum.PlanetCategory => _channelPermissionCachesByType[1],
             ChannelTypeEnum.PlanetVoice => _channelPermissionCachesByType[2],
+            ChannelTypeEnum.PlanetVideo => _channelPermissionCachesByType[2],
             _ => throw new ArgumentOutOfRangeException(nameof(type))
         };
     }

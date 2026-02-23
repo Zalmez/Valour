@@ -58,6 +58,19 @@ public partial class Program
 
 		// Initialize Email Manager
 		EmailManager.SetupClient();
+        // Initialize Stripe
+        if (StripeConfig.Current?.SecretKey is not null)
+            Stripe.StripeConfiguration.ApiKey = StripeConfig.Current.SecretKey;
+        if (!string.IsNullOrWhiteSpace(StripeConfig.Current?.ApiVersion))
+        {
+            Console.WriteLine(
+                $"Stripe ApiVersion override '{StripeConfig.Current.ApiVersion}' requested in config, " +
+                $"but Stripe.net pins request API version to '{Stripe.StripeConfiguration.ApiVersion}'. " +
+                "Set webhook endpoint/CLI API version on Stripe side.");
+        }
+
+        // Initialize Email Manager
+        EmailManager.SetupClient();
 
         // Initialize Firebase for FCM push notifications
         if (!string.IsNullOrWhiteSpace(NotificationsConfig.Current?.FirebaseCredentialPath))
@@ -162,6 +175,7 @@ public partial class Program
             new DynamicAPI<PermissionsNodeApi>().RegisterRoutes(app),
             new DynamicAPI<AutomodApi>().RegisterRoutes(app),
             new DynamicAPI<UserFriendApi>().RegisterRoutes(app),
+            new DynamicAPI<UserBlockApi>().RegisterRoutes(app),
             new DynamicAPI<OauthAppApi>().RegisterRoutes(app),
             new DynamicAPI<TenorFavoriteApi>().RegisterRoutes(app),
             new DynamicAPI<EcoApi>().RegisterRoutes(app),
@@ -169,14 +183,14 @@ public partial class Program
             new DynamicAPI<ReportApi>().RegisterRoutes(app),
             new DynamicAPI<UserProfileApi>().RegisterRoutes(app),
             new DynamicAPI<SubscriptionApi>().RegisterRoutes(app),
-            new DynamicAPI<OrderApi>().RegisterRoutes(app),
+            new DynamicAPI<StripeApi>().RegisterRoutes(app),
             new DynamicAPI<ThemeApi>().RegisterRoutes(app),
             new DynamicAPI<StaffApi>().RegisterRoutes(app),
             new DynamicAPI<MessageApi>().RegisterRoutes(app),
             new DynamicAPI<UnreadApi>().RegisterRoutes(app),
             new DynamicAPI<TagApi>().RegisterRoutes(app),
             new DynamicAPI<BotApi>().RegisterRoutes(app),
-            new DynamicAPI<UnsubscribeApi>().RegisterRoutes(app)
+            new DynamicAPI<UnsubscribeApi>().RegisterRoutes(app),
         };
 
         NodeAPI = new NodeAPI();
@@ -285,8 +299,8 @@ public partial class Program
 
         services.Configure<FormOptions>(options =>
         {
-            options.MemoryBufferThreshold = 20480000;
-            options.MultipartBodyLengthLimit = 20480000;
+            options.MemoryBufferThreshold = 20_971_520; // 20 MB memory buffer before spilling to disk
+            options.MultipartBodyLengthLimit = 262_144_000; // 250 MB (max tier upload limit)
         });
 #if DEBUG
 
@@ -376,9 +390,11 @@ public partial class Program
         services.AddScoped<PlanetService>();
         services.AddScoped<TenorFavoriteService>();
         services.AddScoped<AutomodService>();
+        services.AddScoped<ModerationAuditService>();
         services.AddScoped<BotService>();
         services.AddScoped<TokenService>();
         services.AddScoped<UserFriendService>();
+        services.AddScoped<UserBlockService>();
         services.AddScoped<UserService>();
         services.AddScoped<UnreadService>();
         services.AddScoped<EcoService>();
@@ -389,6 +405,7 @@ public partial class Program
         services.AddScoped<ThemeService>();
         services.AddScoped<StaffService>();
         services.AddScoped<PlanetPermissionService>();
+        services.AddScoped<VoiceStateService>();
         services.AddScoped<StartupService>();
         services.AddScoped<PushNotificationService>();
         services.AddScoped<ITagService,TagService>();
@@ -408,6 +425,8 @@ public partial class Program
         services.AddHostedService<UserOnlineWorker>();
         services.AddHostedService<NodeStateWorker>();
         services.AddHostedService<SubscriptionWorker>();
+        services.AddHostedService<StripeReconciliationWorker>();
+        services.AddHostedService<VoiceStateCleanupWorker>();
         services.AddHostedService<MigrationWorker>();
         services.AddEndpointsApiExplorer();
 

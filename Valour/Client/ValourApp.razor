@@ -22,6 +22,7 @@
 <WindowTargetScanner />
 
 <TooltipRoot />
+<GlobalRealtimeKitHostComponent />
 
 @if (_triedInitialLogin)
 {
@@ -47,6 +48,9 @@ else
 
     private bool _triedInitialLogin;
     private bool _needsErrorReportingCheck;
+    private bool _browserReady;
+    private bool _firstRenderReady;
+    private bool _startupInitializationStarted;
 
     protected override async Task OnInitializedAsync()
     {
@@ -71,25 +75,51 @@ else
             // Host page does not expose a host mode marker.
         }
 
-        if (hostMode != "hybrid")
+        var isLocalWebViewOrigin =
+            string.Equals(uriData.Hostname, "0.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(uriData.Hostname, "0.0.0.0", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(uriData.Hostname, "127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(uriData.Hostname, "localhost", StringComparison.OrdinalIgnoreCase);
+
+        if (hostMode != "hybrid" && !isLocalWebViewOrigin)
         {
             if (!USE_PROD)
             {
+                var apiOrigin = uriData.Origin;
+                try
+                {
+                    var configuredApiOrigin = await JsRuntime.InvokeAsync<string>("getValourApiOrigin");
+                    if (!string.IsNullOrWhiteSpace(configuredApiOrigin))
+                        apiOrigin = configuredApiOrigin;
+                }
+                catch
+                {
+                    // Host page does not expose an API origin override.
+                }
+
                 // Set the origin for the client
                 // We do this here because while the value is assumed in startup
                 // we have access to the JS runtime to get the actual value
-                Client.SetOrigin(uriData.Origin + "/");
+                Logger.Log("App", $"API origin is {apiOrigin}", "magenta");
+                Client.SetOrigin(apiOrigin);
             }
             else
             {
                 Client.SetOrigin("https://app.valour.gg/");
             }
         }
+        else
+        {
+            Logger.Log("App", $"Using native/default API origin (hostMode={hostMode}, hostname={uriData.Hostname})", "magenta");
+        }
 
         _ = JsRuntime.InvokeAsync<object>(
             "blazorFuncs.registerClient",
             DotNetObjectReference.Create(this)
         );
+
+        _browserReady = true;
+        await TryCompleteStartupInitializationAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -101,44 +131,55 @@ else
 
             DeviceInfo.IsMobile = isMobile;
             DeviceInfo.IsEmbedded = isEmbedded;
-
-            if (!Client.IsLoggedIn)
-            {
-                var localToken = await LocalStorage.GetStringAsync("token");
-
-                if (!string.IsNullOrWhiteSpace(localToken))
-                {
-                    var result = await Client.InitializeUser(localToken);
-
-                    if (result.Code == 401)
-                    {
-                        // Clear cookie
-                        await LocalStorage.RemoveAsync("token");
-                    }
-
-                    if (result.Success) {
-                        Log("App", $"Auto-logged user {Client.Me.Name}", "magenta");
-                        _needsErrorReportingCheck = true;
-                    }
-                }
-            }
-
-            // Ensure PrimaryNode is set up for anonymous API calls (e.g., invite pages)
-            if (Client.PrimaryNode is null)
-            {
-                await Client.NodeService.SetupPrimaryNodeAsync();
-            }
-
-            _triedInitialLogin = true;
-            Log("App", $"Tried initial login. Status: {Client.IsLoggedIn}", "magenta");
-
-            StateHasChanged();
+            _firstRenderReady = true;
+            await TryCompleteStartupInitializationAsync();
         }
         else if (_needsErrorReportingCheck)
         {
             _needsErrorReportingCheck = false;
             await CheckErrorReportingPreference();
         }
+    }
+
+    private async Task TryCompleteStartupInitializationAsync()
+    {
+        if (!_browserReady || !_firstRenderReady || _startupInitializationStarted)
+            return;
+
+        _startupInitializationStarted = true;
+
+        if (!Client.IsLoggedIn)
+        {
+            var localToken = await LocalStorage.GetStringAsync("token");
+
+            if (!string.IsNullOrWhiteSpace(localToken))
+            {
+                var result = await Client.InitializeUser(localToken);
+
+                if (result.Code == 401)
+                {
+                    // Clear cookie
+                    await LocalStorage.RemoveAsync("token");
+                }
+
+                if (result.Success)
+                {
+                    Log("App", $"Auto-logged user {Client.Me.Name}", "magenta");
+                    _needsErrorReportingCheck = true;
+                }
+            }
+        }
+
+        // Ensure PrimaryNode is set up for anonymous API calls (e.g., invite pages)
+        if (Client.PrimaryNode is null)
+        {
+            await Client.NodeService.SetupPrimaryNodeAsync();
+        }
+
+        _triedInitialLogin = true;
+        Log("App", $"Tried initial login. Status: {Client.IsLoggedIn}", "magenta");
+
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task CheckErrorReportingPreference()
@@ -154,12 +195,15 @@ else
 
             if (prefs.ErrorReportingState == ErrorReportingState.All)
             {
-                SentryGate.IsEnabled = true;
+                await DevicePreferences.SetErrorReportingEnabled(true, LocalStorage);
                 return;
             }
 
             if (prefs.ErrorReportingState == ErrorReportingState.None)
+            {
+                await DevicePreferences.SetErrorReportingEnabled(false, LocalStorage);
                 return;
+            }
 
             // State is Unset — prompt the user
             var modalData = new ConfirmModalComponent.ModalParams(
@@ -170,11 +214,12 @@ else
                 async () =>
                 {
                     await Client.PrimaryNode.PostAsync($"api/users/me/preferences/errorReporting/{(int)ErrorReportingState.All}", null);
-                    SentryGate.IsEnabled = true;
+                    await DevicePreferences.SetErrorReportingEnabled(true, LocalStorage);
                 },
                 async () =>
                 {
                     await Client.PrimaryNode.PostAsync($"api/users/me/preferences/errorReporting/{(int)ErrorReportingState.None}", null);
+                    await DevicePreferences.SetErrorReportingEnabled(false, LocalStorage);
                 }
             );
 

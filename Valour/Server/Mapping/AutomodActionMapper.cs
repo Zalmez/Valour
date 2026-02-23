@@ -19,7 +19,8 @@ public static class AutomodActionMapper
             MessageId = action.MessageId,
             RoleId = action.RoleId,
             Expires = action.Expires,
-            Message = action.Message
+            Message = action.Message,
+            ResponseChannelId = action.ResponseChannelId
         };
     }
 
@@ -40,7 +41,8 @@ public static class AutomodActionMapper
             MessageId = action.MessageId,
             RoleId = action.RoleId,
             Expires = action.Expires,
-            Message = action.Message
+            Message = action.Message,
+            ResponseChannelId = action.ResponseChannelId
         };
     }
 }

@@ -1,4 +1,5 @@
-﻿using Valour.Shared.Models.Themes;
+﻿using System.Collections.Generic;
+using Valour.Shared.Models.Themes;
 
 namespace Valour.Server.Models.Themes;
 
@@ -37,8 +38,12 @@ public class Theme : ISharedTheme
     
     public string CustomCss { get; set; }
 
+    public List<ThemeAssetInfo> Assets { get; set; } = new();
+
     // ISharedThemeMeta fields (computed, not persisted on Theme)
     public string AuthorName { get; set; }
     public int Upvotes { get; set; }
     public int Downvotes { get; set; }
+    public bool? MySentiment { get; set; }
+    public long? MyVoteId { get; set; }
 }

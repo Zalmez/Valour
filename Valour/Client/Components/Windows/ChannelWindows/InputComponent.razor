@@ -460,15 +460,16 @@
         //var file = await e.File.RequestImageFileAsync("jpeg", 256, 256);
 
         var file = e.File;
-        var maxSize = 10240000;
-        
+        var maxBytes = UserSubscriptionTypes.GetMaxUploadBytes(Client.Me.SubscriptionType);
+        var maxSize = (int)Math.Min(maxBytes, int.MaxValue);
+
         var attachmentType = MessageAttachmentType.File;
 
         // Determine if audio or video or image
 
         var mime = file.ContentType;
         var uploadPath = "file";
-        
+
         // We only actually need to check the first letter,
         // since only 'image/' starts with i
         if (mime[0] == 'i')
@@ -489,11 +490,6 @@
         else if (mime[0] == 'a' && mime[1] == 'u')
         {
             attachmentType = MessageAttachmentType.Audio;
-        }
-
-        if (Client.Me.SubscriptionType is not null)
-        {
-            maxSize = 20480000;
         }
         
         Console.WriteLine($"Selected file {file.Name} with size {file.Size}");
@@ -519,7 +515,9 @@
                 var data = 
                 new InfoModalComponent.ModalParams(
                     $"File too large!",
-                    maxSize == 10240000 ? $"The max upload size is 10MB. To raise this limit, consider subscribing to Plus!" : $"Your max upload size is 20MB.",
+                    Client.Me.SubscriptionType is null
+                        ? "The max upload size is 10MB. To raise this limit, consider subscribing!"
+                        : $"Your max upload size is {maxBytes / (1024 * 1024)}MB.",
                     "Okay",
                     null
                 );
@@ -557,16 +555,14 @@
             FileName = name,
         };
 
-        var plusRoute = Client.Me.SubscriptionType == null ? "" : "/plus";
-
         var modalData = new FileUploadComponent.ModalParams()
         {
             Bytes = bytes,
             Attachment = newAttachment,
             Message = PreviewMessage,
-            OnConfirm = async () => 
+            OnConfirm = async () =>
             {
-                var result = await Client.PrimaryNode.PostMultipartDataWithResponse<string>($"upload/{path}{plusRoute}", content);
+                var result = await Client.PrimaryNode.PostMultipartDataWithResponse<string>($"upload/{path}", content);
 
                 if (result.Success)
                 {

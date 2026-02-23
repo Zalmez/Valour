@@ -85,13 +85,15 @@
 
 @foreach (var channelType in ChannelPermissions.ChannelTypes.OrderBy(x => x.TargetType.ToString()))
 {
+    var groupIndex = GetPermissionGroupIndex(channelType.TargetType);
+
     // Only show if we should
-    if (!_showStates[(int)channelType.TargetType])
+    if (!_showStates[groupIndex])
         continue;
 
     <br />
 
-    <p class="subtitle">@channelType.Permissions[0].ReadableName.ToUpper() PERMISSIONS</p>
+    <p class="subtitle">@GetPermissionSectionTitle(channelType)</p>
     
     <div class="perm-section">
         <!-- Start at one to skip 'full control' -->
@@ -105,7 +107,7 @@
                     @perm.Name
                 </div>
                 <div class="perm-switch">
-                    <TriButtonComponent @ref="_buttonGroups[(int)channelType.TargetType][i2]" OnStateChange="(async (state) => SwitchPermission(state, perm, channelType.TargetType))">
+                    <TriButtonComponent @ref="_buttonGroups[groupIndex][i2]" OnStateChange="(async (state) => SwitchPermission(state, perm, channelType.TargetType))">
                     </TriButtonComponent>
                 </div>
                 <div class="perm-list-desc mt-1">
@@ -152,6 +154,7 @@
 
     // Permission nodes
     private PermissionsNode[] _nodes = new PermissionsNode[ChannelPermissions.ChannelTypes.Length];
+    private long[] _targetIds = new long[ChannelPermissions.ChannelTypes.Length];
 
     private bool[] _needCreate = new bool[ChannelPermissions.ChannelTypes.Length];
     private bool[] _needUpdate  = new bool[ChannelPermissions.ChannelTypes.Length];
@@ -164,6 +167,7 @@
     private PlanetRole _selfPrimaryRole;
     private PlanetRole _lastRole;
     private PlanetRole _selectedRole;
+    private Channel? _associatedChatChannel;
     
     private bool _changed = false;
     private bool _loading = true;
@@ -182,32 +186,36 @@
 
     public void SwitchPermission(TriButtonComponent.TriButtonState state, Permission permission, ChannelTypeEnum type)
     {
+        var groupIndex = GetPermissionGroupIndex(type);
+        var targetType = GetPermissionTargetType(type);
+        var targetId = _targetIds[groupIndex] > 0 ? _targetIds[groupIndex] : Target.Id;
+
         // If the node for the type is null, we create it and set a flag that it
         // needs to be created on the server
-        if (_nodes[(int)type] is null)
+        if (_nodes[groupIndex] is null)
         {
-            _nodes[(int)type] = new(Client)
+            _nodes[groupIndex] = new(Client)
             {
-                TargetId = Target.Id,
+                TargetId = targetId,
                 PlanetId = Target.PlanetId!.Value,
                 RoleId = _selectedRole.Id,
                 Mask = 0x00, 
                 Code = 0x00,
-                TargetType = type
+                TargetType = targetType
             };
             
-            _needCreate[(int)type] = true;
+            _needCreate[groupIndex] = true;
         }
         else
         {
-            _needUpdate[(int)type] = true;
+            _needUpdate[groupIndex] = true;
         }
 
         var newState = PermissionState.Undefined;
         if (state == TriButtonComponent.TriButtonState.Yes) newState = PermissionState.True;
         else if (state == TriButtonComponent.TriButtonState.No) newState = PermissionState.False;
 
-        _nodes[(int)type].SetPermission(permission, newState);
+        _nodes[groupIndex].SetPermission(permission, newState);
 
         _changed = true;
 
@@ -220,6 +228,9 @@
         {
             if (_needCreate[i])
             {
+                if (_nodes[i] is null)
+                    continue;
+
                 var result = await _nodes[i].CreateAsync();
                 if (!result.Success)
                 {
@@ -235,6 +246,9 @@
             }
             else if (_needUpdate[i])
             {
+                if (_nodes[i] is null)
+                    continue;
+
                 var result = await _nodes[i].UpdateAsync();
                 if (!result.Success)
                 {
@@ -275,8 +289,13 @@
             j += 1;
         }
         
-        _hasTargetManagePerm = await Target.HasPermissionAsync(myMember, ChannelPermissions.Manage);
-        _hasTargetPermissionPerm = await Target.HasPermissionAsync(myMember, ChannelPermissions.ManagePermissions);
+        var managePerm = GetManagePermission(Target.ChannelType);
+        var managePermissionPerm = GetManagePermissionsPermission(Target.ChannelType);
+
+        _hasTargetManagePerm = await Target.HasPermissionAsync(myMember, managePerm);
+        _hasTargetPermissionPerm = await Target.HasPermissionAsync(myMember, managePermissionPerm);
+
+        _associatedChatChannel = await ResolveAssociatedChatChannelAsync();
 
         _loading = false;
 
@@ -295,7 +314,7 @@
             {
                 case ModelAddedEvent<PermissionsNode> added:
                 {
-                    if (added.Model.TargetId == Target.Id)
+                    if (IsTrackedTargetId(added.Model.TargetId))
                     {
                         await OnRoleChange(await PlanetService.FetchRoleAsync(added.Model.RoleId, Target.Planet));
                     }
@@ -304,7 +323,7 @@
                 }
                 case ModelUpdatedEvent<PermissionsNode> updated:
                 {
-                    if (updated.Model.TargetId == Target.Id)
+                    if (IsTrackedTargetId(updated.Model.TargetId))
                     {
                         await OnRoleChange(await PlanetService.FetchRoleAsync(updated.Model.RoleId, Target.Planet));
                     }
@@ -332,6 +351,9 @@
         {
             _needCreate[i] = false;
             _needUpdate[i] = false;
+            _showStates[i] = false;
+            _nodes[i] = null;
+            _targetIds[i] = 0;
         }
 
         _selectedRole = role;
@@ -340,25 +362,121 @@
 
         if (Target.ChannelType == ChannelTypeEnum.PlanetCategory)
         {
-            foreach (var type in ChannelPermissions.ChannelTypes){
-                _nodes[(int)type.TargetType] = await Target.GetPermNodeAsync(_selectedRole.Id, type.TargetType);
-                _showStates[(int)type.TargetType] = true;
+            foreach (var type in ChannelPermissions.ChannelTypes)
+            {
+                var groupIndex = GetPermissionGroupIndex(type.TargetType);
+                _nodes[groupIndex] = await Target.GetPermNodeAsync(_selectedRole.Id, GetPermissionTargetType(type.TargetType));
+                _targetIds[groupIndex] = Target.Id;
+                _showStates[groupIndex] = true;
             }
         }
         else
         {
-            foreach (var type in ChannelPermissions.ChannelTypes)
-            {
-                _showStates[(int)type.TargetType] = false;
-            }
+            var targetType = GetPermissionTargetType(Target.ChannelType);
+            var targetGroupIndex = GetPermissionGroupIndex(targetType);
 
-            _nodes[(int)Target.ChannelType] = await Target.GetPermNodeAsync(_selectedRole.Id, Target.ChannelType);
-            _showStates[(int)Target.ChannelType] = true;
+            _nodes[targetGroupIndex] = await Target.GetPermNodeAsync(_selectedRole.Id, targetType);
+            _targetIds[targetGroupIndex] = Target.Id;
+            _showStates[targetGroupIndex] = true;
+
+            if (ISharedChannel.IsPlanetCallType(Target.ChannelType) && _associatedChatChannel is not null)
+            {
+                var chatType = ChannelTypeEnum.PlanetChat;
+                var chatGroupIndex = GetPermissionGroupIndex(chatType);
+                _nodes[chatGroupIndex] = await _associatedChatChannel.GetPermNodeAsync(_selectedRole.Id, chatType);
+                _targetIds[chatGroupIndex] = _associatedChatChannel.Id;
+                _showStates[chatGroupIndex] = true;
+            }
         }
 
         _changed = false;
 
         await RefreshButtons();
+    }
+
+    private static int GetPermissionGroupIndex(ChannelTypeEnum type)
+    {
+        return type switch
+        {
+            ChannelTypeEnum.PlanetChat => 0,
+            ChannelTypeEnum.PlanetCategory => 1,
+            ChannelTypeEnum.PlanetVoice => 2,
+            ChannelTypeEnum.PlanetVideo => 2,
+            _ => throw new InvalidOperationException($"Channel type {type} cannot be edited in this permissions view.")
+        };
+    }
+
+    private static ChannelTypeEnum GetPermissionTargetType(ChannelTypeEnum type)
+    {
+        return type switch
+        {
+            ChannelTypeEnum.PlanetVideo => ChannelTypeEnum.PlanetVoice,
+            _ => type
+        };
+    }
+
+    private static Permission GetManagePermission(ChannelTypeEnum type)
+    {
+        return GetPermissionTargetType(type) switch
+        {
+            ChannelTypeEnum.PlanetChat => ChatChannelPermissions.ManageChannel,
+            ChannelTypeEnum.PlanetCategory => CategoryPermissions.ManageCategory,
+            ChannelTypeEnum.PlanetVoice => VoiceChannelPermissions.ManageChannel,
+            _ => ChannelPermissions.Manage
+        };
+    }
+
+    private static Permission GetManagePermissionsPermission(ChannelTypeEnum type)
+    {
+        return GetPermissionTargetType(type) switch
+        {
+            ChannelTypeEnum.PlanetChat => ChatChannelPermissions.ManagePermissions,
+            ChannelTypeEnum.PlanetCategory => CategoryPermissions.ManagePermissions,
+            ChannelTypeEnum.PlanetVoice => VoiceChannelPermissions.ManagePermissions,
+            _ => ChannelPermissions.ManagePermissions
+        };
+    }
+
+    private string GetPermissionSectionTitle(ChannelPermissionGroup channelType)
+    {
+        if (channelType.TargetType == ChannelTypeEnum.PlanetChat &&
+            ISharedChannel.IsPlanetCallType(Target.ChannelType) &&
+            _associatedChatChannel is not null)
+        {
+            return "INTEGRATED CHAT PERMISSIONS";
+        }
+
+        return $"{channelType.Permissions[0].ReadableName.ToUpper()} PERMISSIONS";
+    }
+
+    private bool IsTrackedTargetId(long targetId) =>
+        targetId == Target.Id || (_associatedChatChannel is not null && targetId == _associatedChatChannel.Id);
+
+    private async Task<Channel?> ResolveAssociatedChatChannelAsync()
+    {
+        if (!ISharedChannel.IsPlanetCallType(Target.ChannelType) || Target.Planet is null)
+            return null;
+
+        if (Target.AssociatedChatChannelId is not null)
+        {
+            if (Target.Planet.Channels.TryGet(Target.AssociatedChatChannelId.Value, out var linkedChat))
+                return linkedChat;
+
+            try
+            {
+                return await Target.Planet
+                    .FetchChannelAsync(Target.AssociatedChatChannelId.Value)
+                    .AsTask()
+                    .WaitAsync(TimeSpan.FromSeconds(4));
+            }
+            catch
+            {
+                // Fallback to inverse lookup if direct fetch fails.
+            }
+        }
+
+        return Target.Planet.Channels
+            .FirstOrDefault(x => x.AssociatedChatChannelId == Target.Id && x.ChannelType == ChannelTypeEnum.PlanetChat);
     }
 
     private PermissionState GetPermissionStateForViewing(PermissionsNode node, Permission permission)

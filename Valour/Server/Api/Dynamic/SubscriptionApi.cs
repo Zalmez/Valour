@@ -47,11 +47,23 @@ public class SubscriptionApi
     [ValourRoute(HttpVerbs.Post, "api/subscriptions/end")]
     [UserRequired(UserPermissionsEnum.FullControl)]
     public static async Task<IResult> UnsubscribeAsync(
-        UserService userService, 
+        UserService userService,
         SubscriptionService subService)
     {
         var userId = await userService.GetCurrentUserIdAsync();
         var result = await subService.EndSubscriptionAsync(userId);
+
+        return Results.Json(result);
+    }
+
+    [ValourRoute(HttpVerbs.Post, "api/subscriptions/cancel-pending")]
+    [UserRequired(UserPermissionsEnum.FullControl)]
+    public static async Task<IResult> CancelPendingChangeAsync(
+        UserService userService,
+        SubscriptionService subService)
+    {
+        var userId = await userService.GetCurrentUserIdAsync();
+        var result = await subService.CancelPendingChangeAsync(userId);
 
         return Results.Json(result);
     }

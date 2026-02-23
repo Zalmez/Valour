@@ -8,41 +8,49 @@
 @using Valour.Shared.Models
 @using Channel = Valour.Sdk.Models.Channel
 
-@if (_loading)
-{
-    <Loading Title="Loading chat..." Spin="@true" />
-}
-else
-{
-    <ChatHeaderComponent Channel="@Channel" ChatComponent="@this" />
-    <div class="chat-member-wrapper">
-        <div style="width: 100%; overflow: hidden" @onmouseleave="@OnMouseLeaveMessageArea">
-            <div @ref="@MessageWrapperEl" class="chat-holder mt-auto">
-                <!-- Pushes messages to bottom -->
-                <div class="pusher"></div>
+<div class="chat-window-root @(Embedded ? "embedded" : string.Empty)">
+    @if (_loading)
+    {
+        <Loading Title="Loading chat..." Spin="@true" />
+    }
+    else
+    {
+        @if (!HideHeader)
+        {
+            <ChatHeaderComponent Channel="@Channel" ChatComponent="@this" />
+        }
+        <div class="chat-member-wrapper @(HideMemberList ? "member-list-hidden" : string.Empty)">
+            <div style="width: 100%; overflow: hidden" @onmouseleave="@OnMouseLeaveMessageArea">
+                <div @ref="@MessageWrapperEl" class="chat-holder mt-auto">
+                    <!-- Pushes messages to bottom -->
+                    <div class="pusher"></div>
 
-                <!-- Actual messages -->
-                @MessagesFragment
+                    <!-- Actual messages -->
+                    @MessagesFragment
 
-                <div class="anchor"></div>
-            </div>
-            <RadialPalette @ref="@_hoverMenu"
-                           OptionSize="60"
-                           Scale="0.5"
-                           Radius="75"
-                           AnimationDelayStep="0.02"/>
-
-            <ControlledRenderWrapper @ref="@_reactionSelectorRenderWrapper">
-                <div class="reaction-selector-wrapper" style="bottom: @(_reactionSelectorTop); right: @(_reactionSelectorLeft);">
-                    <EmojiMart @ref="@_reactionSelector" EmojiSet="twitter" StartShown="false" OnClickOutside="@OnClickOutsideReactionPicker" OnEmojiClick="@OnReactionSelectedAsync"/>
+                    <div class="anchor"></div>
                 </div>
-            </ControlledRenderWrapper>
-        </div>
-        <MemberListComponent @ref="@MemberListComponent" Channel="@Channel"/>
-    </div>
-}
+                <RadialPalette @ref="@_hoverMenu"
+                               OptionSize="60"
+                               Scale="0.5"
+                               Radius="75"
+                               AnimationDelayStep="0.02"/>
 
-<InputComponent @ref="@InputComponent" ChatComponent="@this" />
+                <ControlledRenderWrapper @ref="@_reactionSelectorRenderWrapper">
+                    <div class="reaction-selector-wrapper" style="bottom: @(_reactionSelectorTop); right: @(_reactionSelectorLeft);">
+                        <EmojiMart @ref="@_reactionSelector" EmojiSet="twitter" StartShown="false" OnClickOutside="@OnClickOutsideReactionPicker" OnEmojiClick="@OnReactionSelectedAsync"/>
+                    </div>
+                </ControlledRenderWrapper>
+            </div>
+            @if (!HideMemberList)
+            {
+                <MemberListComponent @ref="@MemberListComponent" Channel="@Channel"/>
+            }
+        </div>
+    }
+
+    <InputComponent @ref="@InputComponent" ChatComponent="@this" />
+</div>
 
 
 @code {
@@ -191,6 +199,16 @@ else
     private bool _pendingReactionEmojiRefresh;
     
     private bool _loading = true;
+    private bool _disposed;
+
+    [Parameter]
+    public bool Embedded { get; set; }
+
+    [Parameter]
+    public bool HideHeader { get; set; }
+
+    [Parameter]
+    public bool HideMemberList { get; set; }
 
     public Channel Channel;
     public PermissionsNode ChannelPermissions { get; set; }
@@ -246,13 +264,15 @@ else
         Client.Logger.Log<ChatWindowComponent>("Initializing channel window component.", "cyan");
         
         Client.NodeService.NodeReconnected += OnNodeReconnect;
+        Client.BlockService.BlocksChanged += OnBlocksChanged;
         BrowserUtils.Focused += OnBrowserFocused;
         
         Channel.MessageReceived += OnReceiveMessage;
         Channel.MessageEdited += OnReceiveMessageEdit;
         Channel.MessageDeleted += OnDeleteMessage;
-        
-        WindowCtx.Tab.OnStartFloating += OnStartFloating;
+
+        if (WindowCtx?.Tab is not null)
+            WindowCtx.Tab.OnStartFloating += OnStartFloating;
     }
 
     private async Task OnReactionSelectedAsync(EmojiClickEvent e)
@@ -444,11 +464,37 @@ else
         await ReRender();
     }
 
-    public virtual async Task OnReceiveMessage(Message message)
+    public async Task OnBlocksChanged()
     {
+        await InvokeAsync(async () =>
+        {
+            if (!ApplyBlockFilteringToVisibleMessages())
+                return;
+
+            await ReRender();
+
+            if (InputComponent?.PreviewMessageComponent is not null)
+            {
+                InputComponent.PreviewMessageComponent.SetLast(GetLastMessage());
+                InputComponent.PreviewMessageComponent.CheckMinimal();
+                await InputComponent.PreviewMessageComponent.ReRender();
+            }
+        });
+    }
+
+    public virtual async Task OnReceiveMessage(Message? message)
+    {
+        if (_disposed || message is null || Channel is null)
+            return;
+
         // Ignore messages not meant for this channel
         if (message.ChannelId != Channel.Id)
             return;
+
+        if (IsBlockedMessage(message))
+            return;
+
+        StripBlockedReplyPreview(message);
 
         // Skip real-time messages when we're scrolled away from the present —
         // they'll be fetched via forward loading when the user scrolls back down.
@@ -470,11 +516,22 @@ else
         });
     }
     
-    public virtual async Task OnReceiveMessageEdit(Message message)
+    public virtual async Task OnReceiveMessageEdit(Message? message)
     {
+        if (_disposed || message is null || Channel is null)
+            return;
+
         // Ignore messages not meant for this channel
         if (message.ChannelId != Channel.Id)
             return;
+
+        if (IsBlockedMessage(message))
+        {
+            await OnDeleteMessage(message);
+            return;
+        }
+
+        StripBlockedReplyPreview(message);
 
         await InvokeAsync(async () =>
         {
@@ -502,7 +559,8 @@ else
 
     public async Task OnClickWindow()
     {
-        await WindowCtx.Tab.NotifyFocused();
+        if (WindowCtx?.Tab is not null)
+            await WindowCtx.Tab.NotifyFocused();
     }
     
     public async Task OnStartFloating()
@@ -512,11 +570,17 @@ else
 
     public Task OnPlanetDeleted()
     {
+        if (WindowCtx?.Tab is null)
+            return Task.CompletedTask;
+
         return WindowCtx.Tab.SetContent(HomeWindowComponent.DefaultContent);
     }
 
     public Task OnSelfMemberDeleted()
     {
+        if (WindowCtx?.Tab is null)
+            return Task.CompletedTask;
+
         return WindowCtx.Tab.SetContent(HomeWindowComponent.DefaultContent);
     }
     
@@ -723,6 +787,46 @@ else
     {
         return QueuedMessages.LastOrDefault() ?? DisplayedMessages.LastOrDefault();
     }
+
+    private bool IsBlockedMessage(Message message)
+    {
+        if (message is null)
+            return false;
+
+        return Client.BlockService.IsBlocked(message.AuthorUserId);
+    }
+
+    private bool StripBlockedReplyPreview(Message message)
+    {
+        if (message?.ReplyTo is null)
+            return false;
+
+        if (!Client.BlockService.IsBlocked(message.ReplyTo.AuthorUserId))
+            return false;
+
+        message.ReplyTo = null;
+        message.ReplyToId = null;
+        return true;
+    }
+
+    private bool ApplyBlockFilteringToVisibleMessages()
+    {
+        var changed = false;
+
+        if (DisplayedMessages.RemoveAll(IsBlockedMessage) > 0)
+            changed = true;
+
+        if (QueuedMessages.RemoveAll(IsBlockedMessage) > 0)
+            changed = true;
+
+        foreach (var message in DisplayedMessages)
+        {
+            if (StripBlockedReplyPreview(message))
+                changed = true;
+        }
+
+        return changed;
+    }
     
     public async Task AddMessages(List<Message> messages, bool render = true, bool scroll = false)
     {
@@ -736,6 +840,11 @@ else
         {
             if (msg is null)
                 continue;
+
+            if (IsBlockedMessage(msg))
+                continue;
+
+            StripBlockedReplyPreview(msg);
 
             if (existingIds.Add(msg.Id))
                 uniqueNew.Add(msg);
@@ -770,10 +879,18 @@ else
         }
     }
 
-    public async Task AddMessage(Message message, bool render = true)
+    public async Task AddMessage(Message? message, bool render = true)
     {
+        if (_disposed || message is null)
+            return;
+
+        if (IsBlockedMessage(message))
+            return;
+
+        StripBlockedReplyPreview(message);
+
         //Get current window scroll pos
-        var atBottom = await _jsService.InvokeAsync<bool>("isAtBottom");
+        var atBottom = _jsService is not null && await _jsService.InvokeAsync<bool>("isAtBottom");
 
         // Remove the matching ghost BEFORE rendering so the ghost removal and
         // real message insertion appear in the same render frame with no gap.
@@ -834,8 +951,11 @@ else
     
     // Events
     
-    public async Task OnDeleteMessage(Message message)
+    public async Task OnDeleteMessage(Message? message)
     {
+        if (_disposed || message is null)
+            return;
+
         await InvokeAsync(async () =>
         {
             DisplayedMessages.RemoveAll(x => x.Id == message.Id);
@@ -873,21 +993,48 @@ else
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask ScrollToBottomAnimated() => _jsService.InvokeVoidAsync("scrollToBottomAnimated");
+    public ValueTask ScrollToBottomAnimated()
+    {
+        if (_jsService is null)
+            return ValueTask.CompletedTask;
 
-    public ValueTask UpdateScrollPosition() => _jsService.InvokeVoidAsync("updateScrollPosition");
+        return _jsService.InvokeVoidAsync("scrollToBottomAnimated");
+    }
 
-    public ValueTask ScaleScrollPosition() => _jsService.InvokeVoidAsync("scaleScrollPosition");
+    public ValueTask UpdateScrollPosition()
+    {
+        if (_jsService is null)
+            return ValueTask.CompletedTask;
+
+        return _jsService.InvokeVoidAsync("updateScrollPosition");
+    }
+
+    public ValueTask ScaleScrollPosition()
+    {
+        if (_jsService is null)
+            return ValueTask.CompletedTask;
+
+        return _jsService.InvokeVoidAsync("scaleScrollPosition");
+    }
 
     public ValueTask ShiftScrollPosition(float amount)
     {
         if (SuppressAutoScroll)
             return ValueTask.CompletedTask;
 
+        if (_jsService is null)
+            return ValueTask.CompletedTask;
+
         return _jsService.InvokeVoidAsync("shiftScrollPosition", amount);
     }
 
-    public ValueTask ScrollToMessage(long messageId, bool highlight = false) => _jsService.InvokeVoidAsync("scrollToMessage", $"m-{Channel.Id}-{messageId}", highlight);
+    public ValueTask ScrollToMessage(long messageId, bool highlight = false)
+    {
+        if (_jsService is null || Channel is null)
+            return ValueTask.CompletedTask;
+
+        return _jsService.InvokeVoidAsync("scrollToMessage", $"m-{Channel.Id}-{messageId}", highlight);
+    }
 
     [JSInvokable("OnScrollBottomInvoke")]
     public async Task OnScrollBottom()
@@ -1243,12 +1390,19 @@ else
     
     async ValueTask IAsyncDisposable.DisposeAsync()
     {
+        _disposed = true;
+
+        if (Channel is null)
+            return;
+
         Channel.MessageDeleted -= OnDeleteMessage;
         Channel.MessageReceived -= OnReceiveMessage;
         Channel.MessageEdited -= OnReceiveMessageEdit;
-        
-        WindowCtx.Tab.OnStartFloating -= OnStartFloating;
+
+        if (WindowCtx?.Tab is not null)
+            WindowCtx.Tab.OnStartFloating -= OnStartFloating;
         Client.NodeService.NodeReconnected -= OnNodeReconnect;
+        Client.BlockService.BlocksChanged -= OnBlocksChanged;
         BrowserUtils.Focused -= OnBrowserFocused;
         
         if (Channel.PlanetId is not null)

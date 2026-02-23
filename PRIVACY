@@ -1,7 +1,7 @@
 Privacy Policy
 ==============
 
-Last updated: February 15, 2026
+Last updated: February 20, 2026
 
 This Privacy Policy explains what data Valour collects, why we collect it,
 and how you can control it. We believe in minimal data collection — we only
@@ -118,9 +118,9 @@ These services receive limited data to provide specific functionality:
   * Sentry: receives error reports, but ONLY if you opt in via your
     preferences. You can disable this at any time.
 
-  * PayPal: processes subscription payments. We never see or store your
-    payment card details.
-    Privacy policy: https://www.paypal.com/webapps/mpp/ua/privacy-full
+  * Stripe: processes card payments, subscription billing, and checkout
+    sessions. We never see or store your full payment card details.
+    Privacy policy: https://stripe.com/privacy
 
   * Apple App Store / Google Play: processes in-app purchases on mobile.
     Privacy policies:
@@ -139,7 +139,7 @@ International Data Transfers
 -----------------------------
 
 Our servers and several of our third-party service providers (SendGrid,
-Sentry, PayPal, Firebase) are based in the United States. If you are
+Sentry, Stripe, Firebase) are based in the United States. If you are
 located outside the US, your data will be transferred to and processed in
 the US. Our third-party providers each publish their own GDPR compliance
 documentation and data processing terms, which you can review at the
@@ -247,8 +247,8 @@ The table below fulfills our disclosure obligations under Cal. Civ. Code
   Sensory data          | User-uploaded images,     | You        | Message delivery,        | None
                         | video, audio              |            | content sharing          |
   ----------------------|---------------------------|------------|--------------------------|-------------------
-  Commercial info       | Subscription status       | You /      | Payment processing       | PayPal, Apple,
-                        |                           | PayPal     |                          | Google
+  Commercial info       | Subscription status       | You /      | Payment processing       | Stripe, Apple,
+                        |                           | Stripe     |                          | Google
   ----------------------|---------------------------|------------|--------------------------|-------------------
   Age / DOB             | Date of birth             | You        | COPPA age verification   | None
 

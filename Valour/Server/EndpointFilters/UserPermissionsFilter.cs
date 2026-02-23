@@ -5,19 +5,26 @@ namespace Valour.Server.EndpointFilters;
 public class UserPermissionsRequiredFilter : IEndpointFilter
 {
     private readonly TokenService _tokenService;
-    
-    public UserPermissionsRequiredFilter(TokenService tokenService)
+    private readonly UserService _userService;
+
+    public UserPermissionsRequiredFilter(TokenService tokenService, UserService userService)
     {
         _tokenService = tokenService;
+        _userService = userService;
     }
-    
+
     public async ValueTask<object> InvokeAsync(EndpointFilterInvocationContext ctx, EndpointFilterDelegate next)
     {
         var token = await _tokenService.GetCurrentTokenAsync();
 
         if (token is null)
             return ValourResult.InvalidToken();
-        
+
+        // Check if the user account has been disabled
+        var user = await _userService.GetAsync(token.UserId);
+        if (user is null || user.Disabled)
+            return ValourResult.Forbid("This account has been disabled.");
+
         var userPermAttr = (UserRequiredAttribute)ctx.HttpContext.Items[nameof(UserRequiredAttribute)];
 
         foreach (var permEnum in userPermAttr.Permissions)

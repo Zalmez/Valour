@@ -117,11 +117,44 @@ public class MigrationWorker : IHostedService
             _logger.LogInformation("Created profiles for {Count} bots", botsWithoutProfiles.Count);
         }
 
+        // Clean up members who have active bans but are still members (due to previous bug)
+        var activeBans = await db.PlanetBans
+            .Where(x => x.TimeExpires == null || x.TimeExpires > DateTime.UtcNow)
+            .Select(x => new { x.TargetId, x.PlanetId })
+            .ToListAsync();
+
+        var bannedMembersRemoved = 0;
+        foreach (var ban in activeBans)
+        {
+            var member = await db.PlanetMembers
+                .FirstOrDefaultAsync(x => x.UserId == ban.TargetId && x.PlanetId == ban.PlanetId && !x.IsDeleted);
+
+            if (member is not null)
+            {
+                member.IsDeleted = true;
+                bannedMembersRemoved++;
+            }
+        }
+
+        if (bannedMembersRemoved > 0)
+        {
+            await db.SaveChangesAsync();
+            _logger.LogInformation("Removed {Count} members who had active bans", bannedMembersRemoved);
+        }
+
         // await permService.BulkUpdateMemberRoleHashesAsync();
         _logger.LogInformation("Migration Worker has finished");
-        
+
         // Migrate channels
         await channelService.MigrateChannels();
+
+        var associatedChatsBackfilled = await channelService.BackfillAssociatedCallChatsAsync();
+        if (associatedChatsBackfilled > 0)
+        {
+            _logger.LogInformation(
+                "Backfilled associated chat channels for {Count} call channels",
+                associatedChatsBackfilled);
+        }
     }
     
     public Task StopAsync(CancellationToken stoppingToken)

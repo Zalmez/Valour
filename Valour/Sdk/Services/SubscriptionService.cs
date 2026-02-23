@@ -48,7 +48,43 @@ public class SubscriptionService
 
     public async Task<UserSubscription> GetActiveSubscriptionAsync()
     {
-        var result = await _client.PrimaryNode.GetJsonAsync<UserSubscription>($"api/subscriptions/active/{_client.Me.Id}", true);
+        var result = await _client.PrimaryNode.GetJsonAsync<UserSubscription>($"api/subscriptions/active", true);
         return result.Data;
+    }
+
+    /// <summary>
+    /// Cancel a Stripe-managed subscription (cancels at period end)
+    /// </summary>
+    public async Task<TaskResult> CancelStripeSubscriptionAsync()
+    {
+        return await _client.PrimaryNode.PostAsync("api/stripe/subscriptions/cancel", (string)null);
+    }
+
+    /// <summary>
+    /// Cancel a pending tier change (downgrade scheduled for next cycle)
+    /// </summary>
+    public async Task<TaskResult> CancelPendingChangeAsync()
+    {
+        var result = await _client.PrimaryNode.PostAsyncWithResponse<TaskResult>("api/subscriptions/cancel-pending");
+        if (!result.Success)
+            return new TaskResult(false, result.Message);
+        return result.Data;
+    }
+
+    /// <summary>
+    /// Change a Stripe subscription to a different tier (upgrade or downgrade)
+    /// </summary>
+    public async Task<TaskResult> ChangeStripeSubscriptionAsync(string tierName)
+    {
+        var result = await _client.PrimaryNode.PostAsyncWithResponse<StripeChangeResult>($"api/stripe/subscriptions/change/{tierName}");
+        if (!result.Success)
+            return new TaskResult(false, result.Message);
+        return new TaskResult(result.Data?.Success ?? false, result.Data?.Message);
+    }
+
+    private class StripeChangeResult
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
     }
 }

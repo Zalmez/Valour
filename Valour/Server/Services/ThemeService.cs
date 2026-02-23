@@ -34,7 +34,7 @@ public class ThemeService
     /// <summary>
     /// Returns a list of theme meta info, with optional search and pagination.
     /// </summary>
-    public async Task<QueryResponse<ThemeMeta>> QueryThemesAsync(QueryRequest queryRequest)
+    public async Task<QueryResponse<ThemeMeta>> QueryThemesAsync(QueryRequest queryRequest, long userId)
     {
         var take = queryRequest.Take;
 
@@ -59,7 +59,6 @@ public class ThemeService
         var skip = queryRequest.Skip;
 
         var data = await baseQuery
-            .Include(x => x.ThemeVotes)
             .Select(x => new
             {
                 Theme = x,
@@ -67,7 +66,8 @@ public class ThemeService
                 Upvotes = x.ThemeVotes.Count(v => v.Sentiment),
                 Downvotes = x.ThemeVotes.Count(v => !v.Sentiment),
                 VoteCount = x.ThemeVotes.Count(v => v.Sentiment) -
-                            x.ThemeVotes.Count(v => !v.Sentiment)
+                            x.ThemeVotes.Count(v => !v.Sentiment),
+                MyVote = x.ThemeVotes.Where(v => v.UserId == userId).Select(v => new { v.Id, v.Sentiment }).FirstOrDefault()
             })
             .OrderByDescending(x => x.VoteCount)
             .Skip(skip)
@@ -84,7 +84,9 @@ public class ThemeService
                 PastelCyan = x.Theme.PastelCyan,
                 AuthorName = x.AuthorName,
                 Upvotes = x.Upvotes,
-                Downvotes = x.Downvotes
+                Downvotes = x.Downvotes,
+                MySentiment = x.MyVote != null ? x.MyVote.Sentiment : null,
+                MyVoteId = x.MyVote != null ? x.MyVote.Id : null
             }).ToListAsync();
 
         return new QueryResponse<ThemeMeta>()
@@ -109,7 +111,9 @@ public class ThemeService
             PastelCyan = x.PastelCyan,
             AuthorName = x.Author.Name,
             Upvotes = x.ThemeVotes.Count(v => v.Sentiment),
-            Downvotes = x.ThemeVotes.Count(v => !v.Sentiment)
+            Downvotes = x.ThemeVotes.Count(v => !v.Sentiment),
+            MySentiment = x.ThemeVotes.Where(v => v.UserId == userId).Select(v => (bool?)v.Sentiment).FirstOrDefault(),
+            MyVoteId = x.ThemeVotes.Where(v => v.UserId == userId).Select(v => (long?)v.Id).FirstOrDefault()
         }).ToListAsync();
     }
 
@@ -120,15 +124,27 @@ public class ThemeService
         // Validate CSS on theme
         if (!string.IsNullOrWhiteSpace(theme.CustomCss))
         {
+            // Block attribute selectors (XSS vector)
             if (theme.CustomCss.Contains('[') || theme.CustomCss.Contains(']'))
-            {
-                return TaskResult.FromFailure(
-                    "CSS contains disallowed characters []. Attribute selectors are not allowed in custom CSS for security reasons.");
-            }
+                return TaskResult.FromFailure("Attribute selectors [...] are not allowed.");
 
-            // Parse valid CSS and write it back to strip anything malicious
+            // Block URLs (IP tracking protection)
+            var cssLower = theme.CustomCss.ToLowerInvariant();
+            if (cssLower.Contains("url(") || cssLower.Contains("@import") || cssLower.Contains("@font-face"))
+                return TaskResult.FromFailure("URLs, @import, and @font-face are not allowed. Use theme asset variables directly, e.g. background-image: var(--theme-asset-name); (do not wrap with url()).");
+
+            // Block XSS vectors
+            if (cssLower.Contains("javascript:") || cssLower.Contains("expression(") ||
+                cssLower.Contains("behavior:") || cssLower.Contains("-moz-binding") ||
+                cssLower.Contains("</style"))
+                return TaskResult.FromFailure("CSS contains disallowed content for security reasons.");
+
+            // Validate CSS is parseable (but don't rewrite it)
             var css = await _parser.ParseAsync(theme.CustomCss);
-            theme.CustomCss = css.ToCss();
+            if (css is null)
+                return TaskResult.FromFailure("CSS is not valid.");
+
+            // DO NOT call css.ToCss() — preserve original formatting and comments
         }
 
         // Validate all colors
@@ -426,5 +442,91 @@ public class ThemeService
             .Where(x => x.UserId == userId && x.ThemeId == themeId)
             .FirstOrDefaultAsync()).ToModel();
     }
-    
+
+    /// <summary>
+    /// Returns the asset list for a theme, with computed CDN URLs.
+    /// </summary>
+    private static string GetThemeAssetUrl(long themeId, long assetId, string cdnExt)
+    {
+        return $"https://public-cdn.valour.gg/valour-public/themeAssets/{themeId}/{assetId}/original.{cdnExt ?? "webp"}";
+    }
+
+    public async Task<List<ThemeAssetInfo>> GetThemeAssetsAsync(long themeId)
+    {
+        return (await _db.ThemeAssets
+            .Where(x => x.ThemeId == themeId)
+            .Select(x => new { x.Id, x.ThemeId, x.Name, x.Animated, x.CdnExtension, x.AssetType })
+            .ToListAsync())
+            .Select(x => new ThemeAssetInfo
+            {
+                Id = x.Id,
+                ThemeId = x.ThemeId,
+                Name = x.Name,
+                Animated = x.Animated,
+                Url = GetThemeAssetUrl(x.ThemeId, x.Id, x.CdnExtension),
+                AssetType = x.AssetType ?? "image",
+            })
+            .ToList();
+    }
+
+    /// <summary>
+    /// Creates a theme asset record in the database.
+    /// </summary>
+    public async Task<TaskResult<ThemeAssetInfo>> CreateThemeAssetAsync(long themeId, string name, bool animated = false, string cdnExtension = "webp", string assetType = "image")
+    {
+        var assetCount = await _db.ThemeAssets.CountAsync(x => x.ThemeId == themeId);
+        if (assetCount >= 20)
+            return TaskResult<ThemeAssetInfo>.FromFailure("Maximum of 20 assets per theme.");
+
+        // Validate name
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 32)
+            return TaskResult<ThemeAssetInfo>.FromFailure("Asset name must be 1-32 characters.");
+
+        if (!Regex.IsMatch(name, @"^[a-zA-Z0-9_-]+$"))
+            return TaskResult<ThemeAssetInfo>.FromFailure("Asset name must only contain letters, numbers, dashes, and underscores.");
+
+        // Check for duplicate names on this theme
+        if (await _db.ThemeAssets.AnyAsync(x => x.ThemeId == themeId && x.Name == name))
+            return TaskResult<ThemeAssetInfo>.FromFailure("An asset with that name already exists on this theme.");
+
+        var asset = new Valour.Database.Themes.ThemeAsset
+        {
+            Id = IdManager.Generate(),
+            ThemeId = themeId,
+            Name = name,
+            Animated = animated,
+            CdnExtension = cdnExtension,
+            AssetType = assetType,
+        };
+
+        _db.ThemeAssets.Add(asset);
+        await _db.SaveChangesAsync();
+
+        var info = new ThemeAssetInfo
+        {
+            Id = asset.Id,
+            ThemeId = asset.ThemeId,
+            Name = asset.Name,
+            Animated = asset.Animated,
+            Url = GetThemeAssetUrl(asset.ThemeId, asset.Id, asset.CdnExtension),
+            AssetType = asset.AssetType,
+        };
+
+        return TaskResult<ThemeAssetInfo>.FromData(info);
+    }
+
+    /// <summary>
+    /// Deletes a theme asset from the database.
+    /// </summary>
+    public async Task<TaskResult> DeleteThemeAssetAsync(long assetId)
+    {
+        var asset = await _db.ThemeAssets.FindAsync(assetId);
+        if (asset is null)
+            return TaskResult.FromFailure("Asset not found.");
+
+        _db.ThemeAssets.Remove(asset);
+        await _db.SaveChangesAsync();
+
+        return TaskResult.SuccessResult;
+    }
 }

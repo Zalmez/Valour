@@ -11,6 +11,7 @@ public class UserFriendService
     private readonly NotificationService _notificationService;
     private readonly CoreHubService _coreHub;
     private readonly NodeLifecycleService _nodeLifecycleService;
+    private readonly UserBlockService _userBlockService;
     private readonly ILogger<UserFriendService> _logger;
 
     public UserFriendService(
@@ -19,6 +20,7 @@ public class UserFriendService
         NotificationService notificationService,
         CoreHubService coreHub,
         NodeLifecycleService nodeLifecycleService,
+        UserBlockService userBlockService,
         ILogger<UserFriendService> logger)
     {
         _db = db;
@@ -27,6 +29,7 @@ public class UserFriendService
         _notificationService = notificationService;
         _coreHub = coreHub;
         _nodeLifecycleService = nodeLifecycleService;
+        _userBlockService = userBlockService;
     }
 
     public async Task<UserFriend> GetAsync(long userId, long friendId) =>
@@ -65,7 +68,11 @@ public class UserFriendService
         var user = await _db.Users.FindAsync(userId);
         if (user is null)
             return new(false, "User not found.");
-        
+
+        // Check if either user has blocked the other
+        if (await _userBlockService.IsBlockedEitherWayAsync(userId, friendId))
+            return new(false, "Cannot add this user as a friend.");
+
         if (await _db.UserFriends.AnyAsync(x => x.UserId == userId &&
                                                 x.FriendId == friendId))
             return new(false, "Friend already added.");

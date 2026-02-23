@@ -1,7 +1,9 @@
 using Microsoft.UI.Xaml;
 using WinUiControls = Microsoft.UI.Xaml.Controls;
 using H.NotifyIcon;
+using Sentry;
 using System.Diagnostics;
+using System.Collections.Concurrent;
 using System.Threading;
 
 namespace Valour.Client.Maui.WinUI;
@@ -14,6 +16,7 @@ public partial class App : MauiWinUIApplication
     private static Mutex? _singleInstanceMutex;
     private static EventWaitHandle? _showWindowEvent;
     private static Thread? _showWindowListenerThread;
+    private static readonly ConcurrentDictionary<string, DateTime> _recentUnobservedExceptionFingerprints = new();
 
     private TaskbarIcon? _trayIcon;
     private Microsoft.UI.Xaml.Window? _mauiWindow;
@@ -23,6 +26,7 @@ public partial class App : MauiWinUIApplication
     public App()
     {
         this.InitializeComponent();
+        RegisterExceptionHandlers();
     }
 
     protected override MauiApp CreateMauiApp() => MauiProgram.CreateMauiApp();
@@ -336,8 +340,119 @@ public partial class App : MauiWinUIApplication
     {
         private readonly Action _execute;
         public RelayCommand(Action execute) => _execute = execute;
-        public event EventHandler? CanExecuteChanged;
+        public event EventHandler? CanExecuteChanged
+        {
+            add { }
+            remove { }
+        }
         public bool CanExecute(object? parameter) => true;
         public void Execute(object? parameter) => _execute();
+    }
+
+    private void RegisterExceptionHandlers()
+    {
+        UnhandledException += (_, e) =>
+        {
+            try
+            {
+                if (e.Exception is not null)
+                {
+                    SentrySdk.CaptureException(e.Exception);
+                }
+            }
+            catch
+            {
+                // Best-effort reporting only.
+            }
+        };
+
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            try
+            {
+                if (e.ExceptionObject is Exception ex)
+                {
+                    SentrySdk.CaptureException(ex);
+                }
+            }
+            catch
+            {
+                // Best-effort reporting only.
+            }
+        };
+
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            try
+            {
+                // Mark observed first so the finalizer thread doesn't escalate this again.
+                e.SetObserved();
+
+                var aggregate = e.Exception?.Flatten();
+                var innerExceptions = aggregate?.InnerExceptions;
+                if (innerExceptions is null || innerExceptions.Count == 0)
+                {
+                    return;
+                }
+
+                foreach (var inner in innerExceptions)
+                {
+                    if (inner is null)
+                    {
+                        continue;
+                    }
+
+                    if (!ShouldCaptureUnobservedException(inner))
+                    {
+                        continue;
+                    }
+
+                    SentrySdk.CaptureException(inner, scope =>
+                    {
+                        scope.SetTag("exception_source", "taskscheduler.unobserved");
+                        scope.SetExtra("aggregate_exception_type", aggregate?.GetType().FullName ?? "unknown");
+                        scope.SetExtra("aggregate_exception_message", aggregate?.Message ?? string.Empty);
+                    });
+                }
+            }
+            catch
+            {
+                // Best-effort reporting only.
+            }
+        };
+    }
+
+    private static bool ShouldCaptureUnobservedException(Exception exception)
+    {
+        // Ignore expected cancellation noise.
+        if (exception is OperationCanceledException)
+        {
+            return false;
+        }
+
+        var fingerprint = $"{exception.GetType().FullName}|{exception.Message}|{exception.StackTrace}";
+        var now = DateTime.UtcNow;
+
+        if (_recentUnobservedExceptionFingerprints.TryGetValue(fingerprint, out var lastSeen) &&
+            (now - lastSeen).TotalSeconds < 30)
+        {
+            return false;
+        }
+
+        _recentUnobservedExceptionFingerprints[fingerprint] = now;
+
+        // Keep the in-memory dedupe map bounded.
+        if (_recentUnobservedExceptionFingerprints.Count > 512)
+        {
+            foreach (var item in _recentUnobservedExceptionFingerprints)
+            {
+                if ((now - item.Value).TotalMinutes > 5)
+                {
+                    _recentUnobservedExceptionFingerprints.TryRemove(item.Key, out _);
+                }
+            }
+        }
+
+        return true;
     }
 }

@@ -17,4 +17,15 @@ public interface ISharedThemeMeta : ISharedModel<long>
     public string AuthorName { get; set; }
     public int Upvotes { get; set; }
     public int Downvotes { get; set; }
+
+    /// <summary>
+    /// The current user's vote sentiment on this theme. Null if no vote.
+    /// True = upvote, False = downvote.
+    /// </summary>
+    public bool? MySentiment { get; set; }
+
+    /// <summary>
+    /// The current user's vote id on this theme. Null if no vote.
+    /// </summary>
+    public long? MyVoteId { get; set; }
 }

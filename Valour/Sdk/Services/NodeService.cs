@@ -56,7 +56,13 @@ public class NodeService : ServiceBase
             }
             else
             {
-                nodeName = msg;
+                nodeName = msg?.Trim();
+                if (string.IsNullOrWhiteSpace(nodeName) || nodeName.Contains('<'))
+                {
+                    LogError("Received invalid primary node name response... trying again in three seconds. Response was:\n\n" + msg);
+                    nodeName = null;
+                    await Task.Delay(3000);
+                }
             }
         } while (nodeName is null);
         

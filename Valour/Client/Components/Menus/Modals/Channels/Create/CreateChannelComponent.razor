@@ -172,7 +172,8 @@
             bool doChat = Data.ChannelType == ChannelTypeEnum.PlanetCategory ||
                           Data.ChannelType == ChannelTypeEnum.PlanetChat;
             bool doVoice = Data.ChannelType == ChannelTypeEnum.PlanetCategory ||
-                           Data.ChannelType == ChannelTypeEnum.PlanetVoice;
+                           Data.ChannelType == ChannelTypeEnum.PlanetVoice ||
+                           Data.ChannelType == ChannelTypeEnum.PlanetVideo;
 
             if (doCategory)
             {

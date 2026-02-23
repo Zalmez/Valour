@@ -12,7 +12,8 @@ public static class UserPreferencesMapper
             Id = prefs.Id,
             ErrorReportingState = prefs.ErrorReportingState,
             NotificationVolume = prefs.NotificationVolume,
-            EnabledNotificationSources = prefs.EnabledNotificationSources
+            EnabledNotificationSources = prefs.EnabledNotificationSources,
+            DmPolicy = prefs.DmPolicy
         };
     }
 
@@ -26,7 +27,8 @@ public static class UserPreferencesMapper
             Id = prefs.Id,
             ErrorReportingState = prefs.ErrorReportingState,
             NotificationVolume = prefs.NotificationVolume,
-            EnabledNotificationSources = prefs.EnabledNotificationSources
+            EnabledNotificationSources = prefs.EnabledNotificationSources,
+            DmPolicy = prefs.DmPolicy
         };
     }
 }

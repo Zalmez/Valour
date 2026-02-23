@@ -1,4 +1,5 @@
-﻿using Valour.Client.Components.Windows.ChannelWindows;
+﻿using Valour.Client.Components.Windows.CallWindows;
+using Valour.Client.Components.Windows.ChannelWindows;
 using Valour.Client.Device;
 using Valour.Sdk.Models;
 using Valour.Shared.Utilities;
@@ -92,21 +93,16 @@ public static class WindowService
         NotifyDockLayoutUpdated();
     }
 
-    public static async Task OpenWindowAtFocused(WindowContent content)
+    public static async Task OpenWindowAtFocused(WindowContent content, WindowTab tabToReplace = null)
     {
-        // If a channel window for the same channel is already open, focus it instead
-        if (content is ChatWindowComponent.Content chatContent && chatContent.Data is not null)
-        {
-            var existingTab = GlobalTabs.FirstOrDefault(t =>
-                t.Content is ChatWindowComponent.Content existing &&
-                existing.Data?.Id == chatContent.Data.Id);
+        if (await TryFocusExistingWindowForContent(content))
+            return;
 
-            if (existingTab?.Layout is not null)
-            {
-                await existingTab.Layout.SetFocusedTab(existingTab);
-                await existingTab.Layout.DockComponent.NotifyLayoutChanged();
-                return;
-            }
+        // Replace the given tab's content instead of adding a new tab
+        if (tabToReplace?.Component is not null)
+        {
+            await tabToReplace.Component.ReplaceAsync(content);
+            return;
         }
 
         var tab = new WindowTab(content);
@@ -147,7 +143,56 @@ public static class WindowService
     /// </summary>
     public static Task TryAddFloatingWindow(WindowTab tab, FloatingWindowProps props = null)
     {
+        if (tab?.Content is not null)
+        {
+            // Keep floating-window entrypoints aligned with OpenWindowAtFocused duplicate checks.
+            var duplicateFocusTask = TryFocusExistingWindowForContent(tab.Content);
+            if (duplicateFocusTask.IsCompletedSuccessfully && duplicateFocusTask.Result)
+                return Task.CompletedTask;
+
+            return TryAddFloatingWindowInternalAsync(tab, props, duplicateFocusTask);
+        }
+
         return MainDock.AddFloatingTab(tab, props);
+    }
+
+    private static async Task TryAddFloatingWindowInternalAsync(
+        WindowTab tab,
+        FloatingWindowProps props,
+        Task<bool> duplicateFocusTask)
+    {
+        if (await duplicateFocusTask)
+            return;
+
+        await MainDock.AddFloatingTab(tab, props);
+    }
+
+    private static async Task<bool> TryFocusExistingWindowForContent(WindowContent content)
+    {
+        if (content is null)
+            return false;
+
+        WindowTab? existingTab = null;
+
+        if (content is ChatWindowComponent.Content chatContent && chatContent.Data is not null)
+        {
+            existingTab = GlobalTabs.FirstOrDefault(t =>
+                t.Content is ChatWindowComponent.Content existing &&
+                existing.Data?.Id == chatContent.Data.Id);
+        }
+        else if (content is CallWindowComponent.Content callContent && callContent.Data is not null)
+        {
+            existingTab = GlobalTabs.FirstOrDefault(t =>
+                t.Content is CallWindowComponent.Content existing &&
+                existing.Data?.Id == callContent.Data.Id);
+        }
+
+        if (existingTab?.Layout is null)
+            return false;
+
+        await existingTab.Layout.SetFocusedTab(existingTab);
+        await existingTab.Layout.DockComponent.NotifyLayoutChanged();
+        return true;
     }
     
     /// <summary>
@@ -163,7 +208,10 @@ public static class WindowService
             await OpenWindowAtFocused(content);
             return;
         }
-        
+
+        if (await TryFocusExistingWindowForContent(content))
+            return;
+
         await MainDock.AddFloatingTab(content, props);
     }
 

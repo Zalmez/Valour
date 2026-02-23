@@ -408,9 +408,11 @@ public class WindowLayout
     
     public async Task OnChannelDropped(Channel channel, WindowDropTargets.DropLocation location)
     {
-        // Create a new chat window
-        var chatWindow = await ChatWindowComponent.GetDefaultContent(channel);
-        var tab = new WindowTab(chatWindow);
+        var content = await ChannelWindowFactory.GetDefaultContent(channel);
+        if (content is null)
+            return;
+
+        var tab = new WindowTab(content);
         
         if (location == WindowDropTargets.DropLocation.Center)
         {
@@ -428,9 +430,11 @@ public class WindowLayout
 
     public async Task OnChannelDropped(Channel channel, WindowTab droppedOn)
     {
-        // Create a new chat window
-        var chatWindow = await ChatWindowComponent.GetDefaultContent(channel);
-        var tab = new WindowTab(chatWindow);
+        var content = await ChannelWindowFactory.GetDefaultContent(channel);
+        if (content is null)
+            return;
+
+        var tab = new WindowTab(content);
         
         // Use the existing OnTabDropped method to handle the drop
         await OnTabDropped(tab, droppedOn);
@@ -440,23 +444,26 @@ public class WindowLayout
     {
         // If we are already split, we cannot split further
         if (IsSplit)
-            return;        
-        
+            return;
+
         // Ensure location is valid
         if (location == WindowDropTargets.DropLocation.Center)
             return;
-        
-        var direction = 
+
+        var direction =
             (location == WindowDropTargets.DropLocation.Left || location == WindowDropTargets.DropLocation.Right)
                 ? SplitDirection.Horizontal
                 : SplitDirection.Vertical;
-        
+
         // Create split
         Split = new WindowSplit(this, direction, 0.5f);
 
         List<WindowTab> tabsOne;
         List<WindowTab> tabsTwo;
-        
+
+        // Save focused tab before splitting
+        var previousFocused = FocusedTab;
+
         if (location == WindowDropTargets.DropLocation.Left || location == WindowDropTargets.DropLocation.Up)
         {
             tabsOne = new List<WindowTab>()
@@ -464,11 +471,11 @@ public class WindowLayout
                 startingTab
             };
             tabsTwo = Tabs;
-            
+
             // Create children
             ChildOne = new WindowLayout(DockComponent, this);
             ChildTwo = new WindowLayout(DockComponent, this);
-            
+
             ChildOne.SetTabsRaw(tabsOne);
             ChildTwo.SetTabsRaw(tabsTwo);
         }
@@ -479,7 +486,7 @@ public class WindowLayout
             {
                 startingTab
             };
-            
+
             // Create children
             ChildOne = new WindowLayout(DockComponent, this);
             ChildTwo = new WindowLayout(DockComponent, this);
@@ -487,14 +494,25 @@ public class WindowLayout
             ChildOne.SetTabsRaw(tabsOne);
             ChildTwo.SetTabsRaw(tabsTwo);
         }
-        
+
+        // Set focused tabs on child layouts
+        ChildOne.FocusedTab = tabsOne.Contains(previousFocused) ? previousFocused : tabsOne.FirstOrDefault();
+        ChildTwo.FocusedTab = tabsTwo.Contains(previousFocused) ? previousFocused : tabsTwo.FirstOrDefault();
+
         // Clear tabs
         Tabs = null;
-        
+
         RecalculatePosition();
+
+        // Notify tab components to re-render with their new layout positions
+        ChildOne.NotifyTabsOfChange();
+        ChildTwo.NotifyTabsOfChange();
 
         // Re-render layouts
         await DockComponent.NotifyLayoutChanged();
+
+        // Notify the dropped tab it has been (re)opened so planet connections are restored
+        await startingTab.NotifyOpened();
     }
 
     public async Task RemoveChild(WindowLayout child)
@@ -502,21 +520,23 @@ public class WindowLayout
         // Both children get removed but the other one becomes the tab stack
         if (ChildOne == child)
         {
-            // Take tabs from child
+            // Take tabs and focus from surviving child
             Tabs = ChildTwo.Tabs;
+            FocusedTab = ChildTwo.FocusedTab;
             ChildTwo.Parent = null;
             ChildTwo = null;
-            
+
             // Remove other child
             ChildOne = null;
         }
         else if (ChildTwo == child)
         {
-            // Take tabs from child
+            // Take tabs and focus from surviving child
             Tabs = ChildOne.Tabs;
+            FocusedTab = ChildOne.FocusedTab;
             ChildOne.Parent = null;
             ChildOne = null;
-            
+
             // Remove other child
             ChildTwo = null;
         }
@@ -525,7 +545,7 @@ public class WindowLayout
             Console.WriteLine("Tried to remove a child that is not a child of this layout.");
             return;
         }
-        
+
         // Remove split
         Split = null;
         

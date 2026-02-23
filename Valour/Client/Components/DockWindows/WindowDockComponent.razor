@@ -231,9 +231,8 @@
     
     private void Render()
     {
-        Console.WriteLine("Rendering window dock!");
         _canRender = true;
-        StateHasChanged();
+        InvokeAsync(StateHasChanged);
     }
     
     private void OnWindowResize(ElementDimensions d)

@@ -21,16 +21,18 @@ public static class ChannelMapper
             RawPosition = channel.RawPosition,
             InheritsPerms = channel.InheritsPerms,
             IsDefault = channel.IsDefault,
-            
+            Nsfw = channel.Nsfw,
+            AssociatedChatChannelId = channel.AssociatedChatChannelId,
+
             Members = channel.Members?.Select(x => x.ToModel()).ToList()
         };
     }
-    
+
     public static Valour.Database.Channel ToDatabase(this Channel channel)
     {
         if (channel is null)
             return null;
-        
+
         return new Valour.Database.Channel()
         {
             Id = channel.Id,
@@ -43,6 +45,8 @@ public static class ChannelMapper
             RawPosition = channel.RawPosition,
             InheritsPerms = channel.InheritsPerms,
             IsDefault = channel.IsDefault,
+            Nsfw = channel.Nsfw,
+            AssociatedChatChannelId = channel.AssociatedChatChannelId,
             Version = ISharedChannel.CurrentVersion,
             
             Members = channel.Members?.Select(x => x.ToDatabase()).ToList()

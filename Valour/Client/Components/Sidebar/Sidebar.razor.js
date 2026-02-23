@@ -103,14 +103,19 @@ export function init(ref, id) {
             sidebar.style.transform = `translateX(0px)`;
             open = true;
         }
-    }
+    };
+
+    const clearInlineTransform = () => {
+        sidebar.style.transform = null;
+    };
     
     window['toggleSidebar'] = toggleOpen;
     window['setSidebarOpen'] = setSidebarOpen;
     
     return {
         toggleOpen: toggleOpen,
-    }
+        clearInlineTransform: clearInlineTransform
+    };
 }
 
 function getTouches(evt) {
@@ -122,4 +127,3 @@ export function cleanup() {
     window.removeEventListener('touchstart', handleTouchStart, false);
     window.removeEventListener('touchmove', handleTouchMove, false);
 }
-

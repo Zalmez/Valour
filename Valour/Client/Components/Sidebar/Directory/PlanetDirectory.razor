@@ -97,6 +97,7 @@
     private void DetermineRootChannels()
     {
         RootChannels = Planet.Channels
+            .Where(ShouldShowChannel)
             .Where(x => x.ParentId is null || !Planet.Channels.ContainsId(x.ParentId.Value))
             .ToList();
     }
@@ -113,6 +114,9 @@
     
     public bool GetVisible(Channel channel)
     {
+        if (!ShouldShowChannel(channel))
+            return false;
+
         if (channel.ParentId is not null)
         {
             if (ClosedCategories.Contains(channel.ParentId.Value))
@@ -130,6 +134,16 @@
         {
             return true;
         }
+    }
+
+    public bool ShouldShowChannel(Channel channel)
+    {
+        if (channel.ChannelType != ChannelTypeEnum.PlanetChat)
+            return true;
+
+        return !Planet.Channels.Any(x =>
+            ISharedChannel.IsPlanetCallType(x.ChannelType) &&
+            x.AssociatedChatChannelId == channel.Id);
     }
 
     public void SetCategoryOpened(long categoryId, bool value)

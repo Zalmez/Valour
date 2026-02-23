@@ -4,6 +4,7 @@ using Valour.Sdk.ModelLogic;
 using Valour.Shared;
 using Valour.Shared.Models;
 using Valour.Shared.Models.Themes;
+using System.Collections.Generic;
 
 namespace Valour.Sdk.Models.Themes;
 
@@ -72,10 +73,14 @@ public class Theme : ClientModel<Theme, long>, ISharedTheme
     
     public string CustomCss { get; set; }
 
+    public List<ThemeAssetInfo> Assets { get; set; } = new();
+
     // ISharedThemeMeta fields (computed, not persisted on Theme)
     public string AuthorName { get; set; }
     public int Upvotes { get; set; }
     public int Downvotes { get; set; }
+    public bool? MySentiment { get; set; }
+    public long? MyVoteId { get; set; }
 
     private Theme() : base() {}
     public Theme (ValourClient client) : base(client) {}
@@ -92,6 +97,9 @@ public class Theme : ClientModel<Theme, long>, ISharedTheme
             HasAnimatedBanner = HasAnimatedBanner,
             MainColor1 = MainColor1,
             PastelCyan = PastelCyan,
+            AuthorName = AuthorName,
+            Upvotes = Upvotes,
+            Downvotes = Downvotes,
         };
     }
     

@@ -1,0 +1,1006 @@
+@inject ValourClient Client
+@inject RealtimeKitHostService RealtimeKitHost
+@inject GlobalCallSessionService CallSession
+@implements IAsyncDisposable
+
+<div class="call-panel @((VideoMode ? "video-mode" : "audio-mode"))">
+    <div class="call-header">
+        <div class="call-header-info">
+            <span class="call-channel-name">@ActiveChannel?.Name</span>
+        </div>
+        <div class="call-status-badge @StatusBadgeClass">
+            <span class="call-status-dot"></span>
+            <span>@StatusText</span>
+        </div>
+    </div>
+
+    <div class="call-controls">
+        @if (!_joined)
+        {
+            <button class="call-ctrl-btn reconnect" disabled="@_connecting" @onmousedown="OnClickReconnect" title="Connect">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
+        }
+        else
+        {
+            <button class="call-ctrl-btn @(_audioEnabled ? "" : "toggled-danger")" @onmousedown="OnClickMute" title="@(_audioEnabled ? "Mute" : "Unmute")">
+                <i class="bi @(_audioEnabled ? "bi-mic-fill" : "bi-mic-mute-fill")"></i>
+            </button>
+        }
+
+        @if (VideoMode && _joined)
+        {
+            <button class="call-ctrl-btn @(_videoEnabled ? "" : "toggled-danger")" @onmousedown="OnClickToggleVideo" title="@(_videoEnabled ? "Disable Camera" : "Enable Camera")">
+                <i class="bi @(_videoEnabled ? "bi-camera-video-fill" : "bi-camera-video-off-fill")"></i>
+            </button>
+
+            <button class="call-ctrl-btn @(_screenShareEnabled ? "toggled" : "")" @onmousedown="OnClickToggleScreenShare" title="@(_screenShareEnabled ? "Stop Sharing Screen" : "Share Screen")">
+                <i class="bi @(_screenShareEnabled ? "bi-display-fill" : "bi-display")"></i>
+            </button>
+        }
+
+        <button class="call-ctrl-btn" @onmousedown="OnClickSettings" title="Settings">
+            <i class="bi bi-gear-fill"></i>
+        </button>
+
+        <button class="call-ctrl-btn danger" @onmousedown="OnClickLeave" title="Leave Call">
+            <i class="bi bi-box-arrow-right"></i>
+        </button>
+    </div>
+
+    @if (VideoMode)
+    {
+        <div class="video-stage">
+            @if (_joined && _participants.Count == 0)
+            {
+                <p class="video-empty">Waiting for participants…</p>
+            }
+            else if (!_joined)
+            {
+                <p class="video-empty">Join the call to start video.</p>
+            }
+            else
+            {
+                
+                var videoTiles = BuildVideoTiles();
+                
+                if (GetFocusedVideoTile(videoTiles) is { } focusedVideoTile)
+                {
+                    <div class="video-focus-layout">
+                        <div class="video-focus-main">
+                            @RenderVideoTile(new VideoTileRenderModel(focusedVideoTile.Participant, focusedVideoTile.Source, true, false))
+                        </div>
+                        <div class="video-focus-strip">
+                            @foreach (var videoTile in GetThumbnailVideoTiles(videoTiles, focusedVideoTile.TileKey))
+                            {
+                                @RenderVideoTile(new VideoTileRenderModel(videoTile.Participant, videoTile.Source, false, true))
+                            }
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="video-grid @GetVideoGridClass(videoTiles.Count)">
+                        @foreach (var videoTile in videoTiles)
+                        {
+                            @RenderVideoTile(new VideoTileRenderModel(videoTile.Participant, videoTile.Source, false, false))
+                        }
+                    </div>
+                }
+
+                <div class="video-audio-hosts">
+                    @foreach (var participant in _participants)
+                    {
+                        <audio id="@GetParticipantAudioElementId(participant.PeerId)" class="participant-audio" autoplay playsinline></audio>
+                    }
+                </div>
+            }
+        </div>
+
+        @if (_joined && GetFullscreenVideoTile(BuildVideoTiles()) is { } fullscreenVideoTile)
+        {
+            <div class="video-fullscreen-backdrop" @onmousedown="CloseViewportFullscreen">
+                <div class="video-fullscreen-shell" @onmousedown:stopPropagation="true">
+                    @RenderVideoTile(new VideoTileRenderModel(
+                        fullscreenVideoTile.Participant,
+                        fullscreenVideoTile.Source,
+                        false,
+                        false,
+                        true))
+
+                    <button class="video-fullscreen-close"
+                            @onmousedown="CloseViewportFullscreen"
+                            title="Exit Fullscreen">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+            </div>
+        }
+    }
+    else if (_joined)
+    {
+        <div class="call-participants">
+            <div class="call-participants-header">
+                <span class="call-participants-label">Participants</span>
+                <span class="call-participants-count">@_participants.Count</span>
+            </div>
+
+            @if (_participants.Count == 0)
+            {
+                <p class="call-participants-empty">No one else is here yet.</p>
+            }
+            else
+            {
+                @foreach (var participant in _participants)
+                {
+                    <div class="@GetParticipantClass(participant)" @key="participant.PeerId">
+                        <div class="participant-info">
+                            @if (GetParticipantMember(participant.UserId) is { } participantMember)
+                            {
+                                <UserInfoComponent Member="@participantMember" Style="width: 100%;" />
+                            }
+                            else
+                            {
+                                <UserInfoComponent UserId="@participant.UserId" Style="width: 100%;" />
+                            }
+                        </div>
+                        @if (participant.IsSelf)
+                        {
+                            @if (!_audioEnabled)
+                            {
+                                <span class="participant-self-muted" title="You are muted">
+                                    <i class="bi bi-mic-mute-fill"></i>
+                                </span>
+                            }
+                        }
+                        else
+                        {
+                            
+                            var participantVolume = GetParticipantVolume(participant.PeerId);
+                            var participantVolumeMuted = participantVolume == 0;
+                            var moderatorMuted = IsParticipantModeratorMuted(participant);
+                        
+                            <div class="participant-volume">
+                                <input type="range" min="0" max="100"
+                                       value="@participantVolume"
+                                       @oninput="(e) => OnParticipantVolumeChanged(participant.PeerId, e)"
+                                       class="participant-volume-slider" />
+                                <button class="participant-volume-btn @(participantVolumeMuted ? "muted" : "")"
+                                        @onmousedown="() => ToggleParticipantMute(participant.PeerId)"
+                                        title="@(participantVolumeMuted ? "Unmute" : "Mute")">
+                                    <i class="bi @GetVolumeIcon(participantVolume)"></i>
+                                </button>
+                            </div>
+
+                            @if ((_canMuteParticipants || _canKickParticipants) && participant.UserId > 0)
+                            {
+                                <div class="participant-moderation">
+                                    @if (_canMuteParticipants)
+                                    {
+                                        <button class="participant-mod-btn warn @(moderatorMuted ? "toggled" : "")"
+                                                @onmousedown="() => OnClickToggleMuteParticipant(participant)"
+                                                title="@(moderatorMuted ? "Unmute participant" : "Mute participant")">
+                                            <i class="bi @(moderatorMuted ? "bi-mic-fill" : "bi-mic-mute-fill")"></i>
+                                        </button>
+                                    }
+                                    @if (_canKickParticipants)
+                                    {
+                                        <button class="participant-mod-btn danger"
+                                                @onmousedown="() => OnClickKickParticipant(participant)"
+                                                title="Kick from call">
+                                            <i class="bi bi-door-open-fill"></i>
+                                        </button>
+                                    }
+                                </div>
+                            }
+                        }
+                        <audio id="@GetParticipantAudioElementId(participant.PeerId)" class="participant-audio" autoplay playsinline></audio>
+                    </div>
+                }
+            }
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="call-error">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <span>@_error</span>
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    public ModalRoot? ModalRoot { get; set; }
+
+    [Parameter]
+    public Channel? Channel { get; set; }
+
+    [Parameter]
+    public bool VideoMode { get; set; }
+
+    private RealtimeKitComponent? _rtk => RealtimeKitHost.Component;
+    private readonly object _memberPrefetchLock = new();
+
+    private bool _joined;
+    private bool _connecting;
+
+    private bool _audioEnabled = true;
+    private bool _videoEnabled;
+    private bool _screenShareEnabled;
+
+    private string? _error;
+    private bool _pendingParticipantMediaSync;
+    private Dictionary<string, int> _participantVolumes = new();
+    private List<VoiceParticipantState> _participants = new();
+    private readonly HashSet<long> _participantMemberPrefetchInFlight = new();
+
+    private bool _canMuteParticipants;
+    private bool _canKickParticipants;
+    private readonly HashSet<long> _moderatorMutedParticipantUserIds = new();
+    private string? _focusedVideoTileKey;
+    private string? _fullscreenVideoTileKey;
+    private long _lastAppliedParticipantsVersion = -1;
+
+    public Channel? ActiveChannel { get; private set; }
+
+    private string StatusText => _connecting ? "Connecting" : _joined ? "Connected" : "Disconnected";
+    private string StatusBadgeClass => _connecting ? "connecting" : _joined ? "connected" : "disconnected";
+
+    private int GetParticipantVolume(string peerId) =>
+        _participantVolumes.TryGetValue(peerId, out var vol) ? vol : 100;
+
+    private static string GetVolumeIcon(int volume) => volume switch
+    {
+        0 => "bi-volume-mute-fill",
+        <= 50 => "bi-volume-down-fill",
+        _ => "bi-volume-up-fill"
+    };
+
+    private RenderFragment RenderVideoTile(VideoTileRenderModel model) => @<div class="@GetVideoTileClass(model.Participant, model.Source, model.IsFocusedMain, model.IsThumbnail, model.IsViewportFullscreen)" @key="model.RenderKey">
+        <video id="@GetParticipantVideoElementId(model.Participant.PeerId, model.Source, model.IsViewportFullscreen)" class="participant-video" autoplay playsinline muted></video>
+
+        @if (!HasVisualTrackForTile(model))
+        {
+            <div class="video-fallback">
+                @if (model.IsScreenShareTile)
+                {
+                    <i class="bi bi-display-fill screen-share-fallback-icon"></i>
+                }
+                else
+                {
+                    <div class="video-fallback-avatar"
+                         style="@GetParticipantAvatarStyle(model.Participant)"
+                         title="@model.Participant.DisplayName">
+                    </div>
+                }
+            </div>
+        }
+
+        <div class="video-overlay-top">
+            <div class="video-participant-meta">
+                @if (GetParticipantMember(model.Participant.UserId) is { } overlayParticipantMember)
+                {
+                    <UserInfoComponent Member="@overlayParticipantMember" Style="width: 100%;" />
+                }
+                else
+                {
+                    <UserInfoComponent UserId="@model.Participant.UserId" Style="width: 100%;" />
+                }
+            </div>
+        </div>
+
+        <div class="video-overlay-bottom">
+            <div class="video-overlay-actions">
+                @if (model.Participant.IsSelf)
+                {
+                    <span class="participant-self-muted @(_audioEnabled ? "hidden" : "")" title="You are muted">
+                        <i class="bi bi-mic-mute-fill"></i>
+                    </span>
+                }
+                else
+                {
+                    
+                    var participantVolume = GetParticipantVolume(model.Participant.PeerId);
+                    var participantVolumeMuted = participantVolume == 0;
+                    var moderatorMuted = IsParticipantModeratorMuted(model.Participant);
+                
+                    <div class="video-tile-controls">
+                        <input type="range" min="0" max="100"
+                               value="@participantVolume"
+                               @oninput="(e) => OnParticipantVolumeChanged(model.Participant.PeerId, e)"
+                               class="participant-volume-slider" />
+                        <button class="participant-volume-btn @(participantVolumeMuted ? "muted" : "")"
+                                @onmousedown="() => ToggleParticipantMute(model.Participant.PeerId)"
+                                title="@(participantVolumeMuted ? "Unmute" : "Mute")">
+                            <i class="bi @GetVolumeIcon(participantVolume)"></i>
+                        </button>
+
+                        @if ((_canMuteParticipants || _canKickParticipants) && model.Participant.UserId > 0)
+                        {
+                            @if (_canMuteParticipants)
+                            {
+                                <button class="participant-mod-btn warn @(moderatorMuted ? "toggled" : "")"
+                                        @onmousedown="() => OnClickToggleMuteParticipant(model.Participant)"
+                                        title="@(moderatorMuted ? "Unmute participant" : "Mute participant")">
+                                    <i class="bi @(moderatorMuted ? "bi-mic-fill" : "bi-mic-mute-fill")"></i>
+                                </button>
+                            }
+                            @if (_canKickParticipants)
+                            {
+                                <button class="participant-mod-btn danger"
+                                        @onmousedown="() => OnClickKickParticipant(model.Participant)"
+                                        title="Kick from call">
+                                    <i class="bi bi-door-open-fill"></i>
+                                </button>
+                            }
+                        }
+                    </div>
+                }
+
+                <button class="video-focus-btn @(model.IsFocusedMain ? "active" : "")"
+                        @onmousedown:stopPropagation="true"
+                        @onmousedown="() => ToggleFocusedVideoTile(model.TileKey)"
+                        title="@(model.IsFocusedMain ? "Exit focused view" : "Focus participant")">
+                    <i class="bi @(model.IsFocusedMain ? "bi-fullscreen-exit" : "bi-arrows-fullscreen")"></i>
+                </button>
+
+                <button class="video-viewport-btn @(IsFullscreenVideoTile(model.TileKey) ? "active" : "")"
+                        @onmousedown:stopPropagation="true"
+                        @onmousedown="() => ToggleViewportFullscreen(model.TileKey)"
+                        title="@(IsFullscreenVideoTile(model.TileKey) ? "Exit full screen" : "Full screen (95%)")">
+                    <i class="bi @(IsFullscreenVideoTile(model.TileKey) ? "bi-fullscreen-exit" : "bi-arrows-angle-expand")"></i>
+                </button>
+            </div>
+        </div>
+    </div>;
+
+    protected override void OnInitialized()
+    {
+        RealtimeKitHost.AvailabilityChanged += OnRealtimeKitHostAvailabilityChanged;
+        CallSession.StateChanged += OnGlobalCallSessionStateChanged;
+        SyncFromGlobalCallSession();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && Channel is not null)
+        {
+            await Initialize(Channel);
+        }
+
+        if (!_pendingParticipantMediaSync || !_joined || _rtk is null)
+            return;
+
+        _pendingParticipantMediaSync = false;
+
+        try
+        {
+            await SyncParticipantMediaElementsAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = GetExceptionMessage(ex, "Failed to sync participant media.");
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task Initialize(Channel channel)
+    {
+        if (CallSession.ActiveChannel?.Id == channel.Id && (CallSession.Joined || CallSession.Connecting))
+        {
+            SyncFromGlobalCallSession();
+            StateHasChanged();
+            return;
+        }
+
+        await CallSession.InitializeAsync(channel, VideoMode);
+        SyncFromGlobalCallSession();
+        StateHasChanged();
+    }
+
+    private async Task OnClickReconnect()
+    {
+        if (ActiveChannel is null)
+            return;
+
+        await CallSession.ReconnectAsync();
+        SyncFromGlobalCallSession();
+        StateHasChanged();
+    }
+
+    private async Task OnClickMute()
+    {
+        await CallSession.ToggleAudioAsync();
+        SyncFromGlobalCallSession();
+        StateHasChanged();
+    }
+
+    private async Task OnClickToggleVideo()
+    {
+        await CallSession.ToggleVideoAsync();
+        SyncFromGlobalCallSession();
+        _pendingParticipantMediaSync = true;
+        StateHasChanged();
+    }
+
+    private async Task OnClickToggleScreenShare()
+    {
+        await CallSession.ToggleScreenShareAsync();
+        SyncFromGlobalCallSession();
+        _pendingParticipantMediaSync = true;
+        StateHasChanged();
+    }
+
+    private Task OnClickToggleMuteParticipant(VoiceParticipantState participant) =>
+        SendVoiceModerationActionAsync(
+            participant,
+            IsParticipantModeratorMuted(participant) ? "unmute" : "mute");
+
+    private Task OnClickKickParticipant(VoiceParticipantState participant) =>
+        SendVoiceModerationActionAsync(participant, "kick");
+
+    private async Task SendVoiceModerationActionAsync(VoiceParticipantState participant, string action)
+    {
+        await CallSession.SendModerationActionAsync(participant.UserId, participant.IsSelf, action);
+        SyncFromGlobalCallSession();
+        StateHasChanged();
+    }
+
+    private void OnClickSettings()
+    {
+        if (ModalRoot is null)
+            return;
+
+        var data = new EditUserComponent.ModalParams
+        {
+            User = Client.Me,
+            StartCategory = "General Settings",
+            StartItem = "Device Preferences"
+        };
+
+        ModalRoot.OpenModal<EditUserComponent>(data);
+    }
+
+    private async Task OnClickLeave()
+    {
+        await LeaveRoom();
+    }
+
+    private async Task LeaveRoom()
+    {
+        // Manual leave should preserve the channel context so the panel stays in pre-connect state.
+        await SafeLeaveRoomInternalAsync(clearChannel: false);
+        CallSession.ClearError();
+        SyncFromGlobalCallSession();
+        _error = null;
+    }
+
+    private async Task SafeLeaveRoomInternalAsync(bool clearChannel)
+    {
+        await CallSession.LeaveAsync(clearChannel);
+        SyncFromGlobalCallSession();
+
+        _participantVolumes = new Dictionary<string, int>();
+        _participants = new List<VoiceParticipantState>();
+        _focusedVideoTileKey = null;
+        _fullscreenVideoTileKey = null;
+        _moderatorMutedParticipantUserIds.Clear();
+        _pendingParticipantMediaSync = false;
+        _lastAppliedParticipantsVersion = CallSession.ParticipantsVersion;
+        lock (_memberPrefetchLock)
+        {
+            _participantMemberPrefetchInFlight.Clear();
+        }
+    }
+
+    private async Task SetMic(string? deviceId)
+    {
+        await CallSession.SetMicAsync(deviceId);
+        SyncFromGlobalCallSession();
+    }
+
+    private async Task SetCamera(string? deviceId)
+    {
+        await CallSession.SetCameraAsync(deviceId);
+        SyncFromGlobalCallSession();
+        _pendingParticipantMediaSync = true;
+    }
+
+    private async Task SyncParticipantMediaElementsAsync()
+    {
+        if (_rtk is null)
+            return;
+
+        var videoTiles = VideoMode ? BuildVideoTiles() : null;
+
+        foreach (var participant in _participants)
+        {
+            if (string.IsNullOrWhiteSpace(participant.PeerId))
+                continue;
+
+            var volume = GetParticipantVolume(participant.PeerId) / 100.0;
+            await _rtk.SyncParticipantAudioAsync(
+                GetParticipantAudioElementId(participant.PeerId),
+                participant.PeerId,
+                volume);
+        }
+
+        if (!VideoMode || videoTiles is null)
+            return;
+
+        foreach (var videoTile in videoTiles)
+        {
+            await _rtk.SyncParticipantVideoAsync(
+                GetParticipantVideoElementId(videoTile.Participant.PeerId, videoTile.Source, false),
+                videoTile.Participant.PeerId,
+                preferScreenShare: videoTile.PreferScreenShare);
+        }
+
+        if (GetFullscreenVideoTile(videoTiles) is { } fullscreenVideoTile)
+        {
+            await _rtk.SyncParticipantVideoAsync(
+                GetParticipantVideoElementId(fullscreenVideoTile.Participant.PeerId, fullscreenVideoTile.Source, true),
+                fullscreenVideoTile.Participant.PeerId,
+                preferScreenShare: fullscreenVideoTile.PreferScreenShare);
+        }
+    }
+
+    private Task ToggleParticipantMute(string peerId)
+    {
+        var current = GetParticipantVolume(peerId);
+        _participantVolumes[peerId] = current == 0 ? 100 : 0;
+        _pendingParticipantMediaSync = true;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private Task OnParticipantVolumeChanged(string peerId, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var volume))
+        {
+            _participantVolumes[peerId] = Math.Clamp(volume, 0, 100);
+            _pendingParticipantMediaSync = true;
+            StateHasChanged();
+        }
+        return Task.CompletedTask;
+    }
+
+    private static string GetParticipantClass(VoiceParticipantState participant)
+    {
+        return participant.IsActiveSpeaker
+            ? "voice-participant active-speaker"
+            : "voice-participant";
+    }
+
+    private static string GetVideoTileClass(
+        VoiceParticipantState participant,
+        VideoTileSource source,
+        bool isFocusedMain,
+        bool isThumbnail,
+        bool isViewportFullscreen)
+    {
+        var css = "video-tile";
+        if (participant.IsActiveSpeaker)
+            css += " active-speaker";
+        if (participant.IsSelf)
+            css += " self";
+        if (source == VideoTileSource.ScreenShare)
+            css += " screen-share";
+        if (isFocusedMain)
+            css += " focus-main";
+        if (isThumbnail)
+            css += " focus-thumb";
+        if (isViewportFullscreen)
+            css += " viewport-fullscreen";
+        return css;
+    }
+
+    private List<VideoTileRenderModel> BuildVideoTiles() => BuildVideoTiles(_participants);
+
+    private static List<VideoTileRenderModel> BuildVideoTiles(IReadOnlyList<VoiceParticipantState> participants)
+    {
+        var tiles = new List<VideoTileRenderModel>(participants.Count * 2);
+        foreach (var participant in participants)
+        {
+            if (participant.ScreenShareEnabled || participant.HasScreenShareTrack)
+            {
+                tiles.Add(new VideoTileRenderModel(participant, VideoTileSource.ScreenShare, false, false));
+            }
+
+            tiles.Add(new VideoTileRenderModel(participant, VideoTileSource.Camera, false, false));
+        }
+
+        return tiles;
+    }
+
+    private VideoTileRenderModel? GetFocusedVideoTile(IReadOnlyList<VideoTileRenderModel> videoTiles)
+    {
+        if (string.IsNullOrWhiteSpace(_focusedVideoTileKey))
+            return null;
+
+        return videoTiles.FirstOrDefault(x =>
+            string.Equals(x.TileKey, _focusedVideoTileKey, StringComparison.Ordinal));
+    }
+
+    private VideoTileRenderModel? GetFullscreenVideoTile(IReadOnlyList<VideoTileRenderModel> videoTiles)
+    {
+        if (string.IsNullOrWhiteSpace(_fullscreenVideoTileKey))
+            return null;
+
+        return videoTiles.FirstOrDefault(x =>
+            string.Equals(x.TileKey, _fullscreenVideoTileKey, StringComparison.Ordinal));
+    }
+
+    private static IEnumerable<VideoTileRenderModel> GetThumbnailVideoTiles(
+        IReadOnlyList<VideoTileRenderModel> videoTiles,
+        string focusedTileKey)
+    {
+        if (string.IsNullOrWhiteSpace(focusedTileKey))
+            return videoTiles;
+
+        return videoTiles.Where(x =>
+            !string.Equals(x.TileKey, focusedTileKey, StringComparison.Ordinal));
+    }
+
+    private void ToggleFocusedVideoTile(string tileKey)
+    {
+        if (string.IsNullOrWhiteSpace(tileKey))
+            return;
+
+        _focusedVideoTileKey = string.Equals(_focusedVideoTileKey, tileKey, StringComparison.Ordinal)
+            ? null
+            : tileKey;
+
+        // The focused layout moves/recreates video elements; force a rebind so
+        // the enlarged tile does not render with a detached/empty stream.
+        _pendingParticipantMediaSync = true;
+    }
+
+    private bool IsFullscreenVideoTile(string tileKey) =>
+        !string.IsNullOrWhiteSpace(tileKey)
+        && string.Equals(_fullscreenVideoTileKey, tileKey, StringComparison.Ordinal);
+
+    private void ToggleViewportFullscreen(string tileKey)
+    {
+        if (string.IsNullOrWhiteSpace(tileKey))
+            return;
+
+        _fullscreenVideoTileKey = IsFullscreenVideoTile(tileKey)
+            ? null
+            : tileKey;
+
+        _pendingParticipantMediaSync = true;
+    }
+
+    private void CloseViewportFullscreen()
+    {
+        if (string.IsNullOrWhiteSpace(_fullscreenVideoTileKey))
+            return;
+
+        _fullscreenVideoTileKey = null;
+        _pendingParticipantMediaSync = true;
+    }
+
+    private static bool HasVisualTrackForTile(VideoTileRenderModel model)
+    {
+        return model.Source == VideoTileSource.ScreenShare
+            ? model.Participant.HasScreenShareTrack
+            : model.Participant.VideoEnabled && model.Participant.HasVideoTrack;
+    }
+
+    private string GetParticipantAvatarStyle(VoiceParticipantState participant)
+    {
+        var avatar = GetParticipantMember(participant.UserId)?.GetAvatar() ?? ISharedUser.DefaultAvatar;
+        return $"background-image: url('{avatar}');";
+    }
+
+    private static string GetVideoGridClass(int tileCount)
+    {
+        var count = Math.Max(1, tileCount);
+        if (count <= 1)
+            return "one";
+        if (count == 2)
+            return "two";
+        if (count <= 4)
+            return "four";
+        if (count <= 6)
+            return "six";
+
+        return "many";
+    }
+
+    private static string GetParticipantAudioElementId(string peerId)
+    {
+        var normalizedPeerId = string.IsNullOrWhiteSpace(peerId) ? "unknown" : peerId;
+        var idBytes = System.Text.Encoding.UTF8.GetBytes(normalizedPeerId);
+        var idSuffix = Convert.ToHexString(idBytes).ToLowerInvariant();
+        return $"call-audio-{idSuffix}";
+    }
+
+    private static string GetParticipantVideoElementId(string peerId, VideoTileSource source, bool isViewportFullscreen)
+    {
+        var normalizedPeerId = string.IsNullOrWhiteSpace(peerId) ? "unknown" : peerId;
+        var idBytes = System.Text.Encoding.UTF8.GetBytes(normalizedPeerId);
+        var idSuffix = Convert.ToHexString(idBytes).ToLowerInvariant();
+        var sourceSuffix = source == VideoTileSource.ScreenShare ? "screen" : "camera";
+        var hostSuffix = isViewportFullscreen ? "fullscreen" : "inline";
+        return $"call-video-{sourceSuffix}-{hostSuffix}-{idSuffix}";
+    }
+
+    private PlanetMember? GetParticipantMember(long userId)
+    {
+        if (userId <= 0 || ActiveChannel?.PlanetId is null || ActiveChannel.Planet is null)
+            return null;
+
+        var key = new PlanetMemberKey(userId, ActiveChannel.PlanetId.Value);
+        if (!Client.Cache.MemberKeyToId.TryGetValue(key, out var memberId))
+            return null;
+
+        if (!ActiveChannel.Planet.Members.TryGet(memberId, out var member))
+            return null;
+
+        return member;
+    }
+
+    private bool IsParticipantModeratorMuted(VoiceParticipantState participant) =>
+        participant.UserId > 0 && _moderatorMutedParticipantUserIds.Contains(participant.UserId);
+
+    private void QueueMissingParticipantMemberFetches(IReadOnlyList<VoiceParticipantState> participants)
+    {
+        if (ActiveChannel?.PlanetId is null || ActiveChannel.Planet is null || participants.Count == 0)
+            return;
+
+        foreach (var userId in participants.Select(x => x.UserId).Where(x => x > 0).Distinct())
+        {
+            if (GetParticipantMember(userId) is not null)
+                continue;
+
+            bool added;
+            lock (_memberPrefetchLock)
+            {
+                added = _participantMemberPrefetchInFlight.Add(userId);
+            }
+
+            if (!added)
+                continue;
+
+            _ = FetchParticipantMemberAsync(userId);
+        }
+    }
+
+    private async Task FetchParticipantMemberAsync(long userId)
+    {
+        try
+        {
+            var activeChannel = ActiveChannel;
+            if (activeChannel?.Planet is null)
+                return;
+
+            await activeChannel.Planet.FetchMemberByUserAsync(userId);
+        }
+        catch
+        {
+            // Ignore lookup failures; user fallback rendering remains available.
+        }
+        finally
+        {
+            lock (_memberPrefetchLock)
+            {
+                _participantMemberPrefetchInFlight.Remove(userId);
+            }
+
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private List<VoiceParticipantState> BuildParticipantState(RealtimeKitParticipantsSnapshot? snapshot)
+    {
+        if (snapshot?.Participants is null || snapshot.Participants.Length == 0)
+            return new List<VoiceParticipantState>();
+
+        var activeSpeakerPeerId = snapshot.ActiveSpeakerPeerId;
+
+        return snapshot.Participants
+            .Where(x => !string.IsNullOrWhiteSpace(x.PeerId))
+            .Select(x => new VoiceParticipantState
+            {
+                PeerId = x.PeerId!,
+                UserId = ResolveUserId(x),
+                DisplayName = string.IsNullOrWhiteSpace(x.Name) ? "Unknown Participant" : x.Name,
+                AudioEnabled = x.AudioEnabled,
+                VideoEnabled = x.VideoEnabled,
+                ScreenShareEnabled = x.ScreenShareEnabled,
+                HasAudioTrack = x.HasAudioTrack,
+                AudioTrackId = x.AudioTrackId,
+                HasVideoTrack = x.HasVideoTrack,
+                VideoTrackId = x.VideoTrackId,
+                HasScreenShareTrack = x.HasScreenShareTrack,
+                ScreenShareTrackId = x.ScreenShareTrackId,
+                HasScreenShareAudioTrack = x.HasScreenShareAudioTrack,
+                ScreenShareAudioTrackId = x.ScreenShareAudioTrackId,
+                IsSelf = x.IsSelf,
+                IsActiveSpeaker = string.Equals(x.PeerId, activeSpeakerPeerId, StringComparison.Ordinal)
+            })
+            .OrderByDescending(x => x.IsSelf)
+            .ThenBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static long ResolveUserId(RealtimeKitParticipantState participant)
+    {
+        if (TryParseUserId(participant.CustomParticipantId, out var customId))
+            return customId;
+
+        if (long.TryParse(participant.UserId, out var userId) && userId > 0)
+            return userId;
+
+        return 0;
+    }
+
+    private static bool TryParseUserId(string? source, out long userId)
+    {
+        userId = 0;
+        if (string.IsNullOrWhiteSpace(source))
+            return false;
+
+        var delimiterIndex = source.IndexOf(':');
+        var candidate = delimiterIndex > 0 ? source[..delimiterIndex] : source;
+        return long.TryParse(candidate, out userId) && userId > 0;
+    }
+
+    private static bool AreParticipantsEqual(IReadOnlyList<VoiceParticipantState> current, IReadOnlyList<VoiceParticipantState> next)
+    {
+        if (current.Count != next.Count)
+            return false;
+
+        for (int i = 0; i < current.Count; i++)
+        {
+            var left = current[i];
+            var right = next[i];
+
+            if (!string.Equals(left.PeerId, right.PeerId, StringComparison.Ordinal))
+                return false;
+
+            if (left.UserId != right.UserId)
+                return false;
+
+            if (!string.Equals(left.DisplayName, right.DisplayName, StringComparison.Ordinal))
+                return false;
+
+            if (left.AudioEnabled != right.AudioEnabled
+                || left.VideoEnabled != right.VideoEnabled
+                || left.ScreenShareEnabled != right.ScreenShareEnabled
+                || left.HasAudioTrack != right.HasAudioTrack
+                || !string.Equals(left.AudioTrackId, right.AudioTrackId, StringComparison.Ordinal)
+                || left.HasVideoTrack != right.HasVideoTrack
+                || !string.Equals(left.VideoTrackId, right.VideoTrackId, StringComparison.Ordinal)
+                || left.HasScreenShareTrack != right.HasScreenShareTrack
+                || !string.Equals(left.ScreenShareTrackId, right.ScreenShareTrackId, StringComparison.Ordinal)
+                || left.HasScreenShareAudioTrack != right.HasScreenShareAudioTrack
+                || !string.Equals(left.ScreenShareAudioTrackId, right.ScreenShareAudioTrackId, StringComparison.Ordinal)
+                || left.IsSelf != right.IsSelf
+                || left.IsActiveSpeaker != right.IsActiveSpeaker)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private sealed record VideoTileRenderModel(
+        VoiceParticipantState Participant,
+        VideoTileSource Source,
+        bool IsFocusedMain,
+        bool IsThumbnail,
+        bool IsViewportFullscreen = false)
+    {
+        public string TileKey => $"{Participant.PeerId}:{(Source == VideoTileSource.ScreenShare ? "screen" : "camera")}";
+        public string RenderKey => IsViewportFullscreen ? $"{TileKey}:fullscreen" : TileKey;
+        public bool PreferScreenShare => Source == VideoTileSource.ScreenShare;
+        public bool IsScreenShareTile => Source == VideoTileSource.ScreenShare;
+    }
+
+    private enum VideoTileSource
+    {
+        Camera,
+        ScreenShare
+    }
+
+    private sealed class VoiceParticipantState
+    {
+        public string PeerId { get; init; } = string.Empty;
+        public long UserId { get; init; }
+        public string DisplayName { get; init; } = "Unknown Participant";
+        public bool AudioEnabled { get; init; }
+        public bool VideoEnabled { get; init; }
+        public bool ScreenShareEnabled { get; init; }
+        public bool HasAudioTrack { get; init; }
+        public string? AudioTrackId { get; init; }
+        public bool HasVideoTrack { get; init; }
+        public string? VideoTrackId { get; init; }
+        public bool HasScreenShareTrack { get; init; }
+        public string? ScreenShareTrackId { get; init; }
+        public bool HasScreenShareAudioTrack { get; init; }
+        public string? ScreenShareAudioTrackId { get; init; }
+        public bool IsSelf { get; init; }
+        public bool IsActiveSpeaker { get; init; }
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        RealtimeKitHost.AvailabilityChanged -= OnRealtimeKitHostAvailabilityChanged;
+        CallSession.StateChanged -= OnGlobalCallSessionStateChanged;
+        await Task.CompletedTask;
+    }
+
+    private void OnRealtimeKitHostAvailabilityChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void OnGlobalCallSessionStateChanged()
+    {
+        _ = InvokeAsync(() =>
+        {
+            SyncFromGlobalCallSession();
+            StateHasChanged();
+        });
+    }
+
+    private void SyncFromGlobalCallSession()
+    {
+        ActiveChannel = CallSession.ActiveChannel;
+        _joined = CallSession.Joined;
+        _connecting = CallSession.Connecting;
+        _audioEnabled = CallSession.AudioEnabled;
+        _videoEnabled = CallSession.VideoEnabled;
+        _screenShareEnabled = CallSession.ScreenShareEnabled;
+        _error = CallSession.Error;
+        _canMuteParticipants = CallSession.CanMuteParticipants;
+        _canKickParticipants = CallSession.CanKickParticipants;
+
+        _moderatorMutedParticipantUserIds.Clear();
+        _moderatorMutedParticipantUserIds.UnionWith(CallSession.ModeratorMutedParticipantUserIds);
+
+        if (_lastAppliedParticipantsVersion == CallSession.ParticipantsVersion)
+            return;
+
+        _lastAppliedParticipantsVersion = CallSession.ParticipantsVersion;
+        var nextParticipants = BuildParticipantState(CallSession.ParticipantsSnapshot);
+        QueueMissingParticipantMemberFetches(nextParticipants);
+
+        if (AreParticipantsEqual(_participants, nextParticipants))
+            return;
+
+        _participants = nextParticipants;
+        var nextVideoTiles = BuildVideoTiles(nextParticipants);
+
+        if (!string.IsNullOrWhiteSpace(_focusedVideoTileKey) &&
+            !nextVideoTiles.Any(x => string.Equals(x.TileKey, _focusedVideoTileKey, StringComparison.Ordinal)))
+        {
+            _focusedVideoTileKey = null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_fullscreenVideoTileKey) &&
+            !nextVideoTiles.Any(x => string.Equals(x.TileKey, _fullscreenVideoTileKey, StringComparison.Ordinal)))
+        {
+            _fullscreenVideoTileKey = null;
+        }
+
+        _pendingParticipantMediaSync = true;
+    }
+
+    private static string GetExceptionMessage(Exception exception, string fallbackMessage)
+    {
+        if (!string.IsNullOrWhiteSpace(exception.Message))
+            return exception.Message;
+
+        if (exception.InnerException is not null && !string.IsNullOrWhiteSpace(exception.InnerException.Message))
+            return exception.InnerException.Message;
+
+        return fallbackMessage;
+    }
+}

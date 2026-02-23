@@ -2,6 +2,7 @@
 @inject IJSRuntime JsRuntime
 @inject ValourClient Client
 @inject FriendService FriendService
+@inject BlockService BlockService
 @inject ChannelService ChannelService
 
 
@@ -43,6 +44,24 @@ else
 		<Icon><i class="bi bi-hammer"></i></Icon>
 	</ContextMenuItem>
 }
+@if (!_isSelf && _isBlocked)
+{
+	<ContextMenuItem OnClickAsync="@OnClickUnblock">
+		<Label>Unblock</Label>
+		<Icon><i class="bi bi-shield-fill-check"></i></Icon>
+	</ContextMenuItem>
+}
+else if (!_isSelf)
+{
+	<ContextSubMenu>
+		<Label>Block</Label>
+		<Icon><i class="bi bi-shield-fill-x"></i></Icon>
+		<Content>
+			<ContextMenuItem OnClickAsync="@(() => OnClickBlock(BlockType.OneWay))">One-Way Block</ContextMenuItem>
+			<ContextMenuItem OnClickAsync="@(() => OnClickBlock(BlockType.TwoWay))">Two-Way Block</ContextMenuItem>
+		</Content>
+	</ContextSubMenu>
+}
 <ContextSubMenu>
 	<Label>Roles</Label>
 	<Icon><i class="bi bi-caret-right-fill"></i></Icon>
@@ -77,6 +96,7 @@ else
 	private bool _isFriend;
 	private bool _isFriendRequested;
 	private bool _isSelf;
+	private bool _isBlocked;
 
 	private async Task OnClickAddFriend()
 	{
@@ -112,6 +132,7 @@ else
 		_isFriendRequested = FriendService.OutgoingRequests.Any(x => x.Id == Data.Member.UserId);
 		_isFriend = FriendService.Friends.Any(x => x.Id == Data.Member.UserId);
 		_isSelf = Data.Member.UserId == Client.Me.Id;
+		_isBlocked = BlockService.IsBlocked(Data.Member.UserId);
 
 		_canKick = Data.Member.Planet.MyMember.HasPermission(PlanetPermissions.Kick);
 		_canBan = Data.Member.Planet.MyMember.HasPermission(PlanetPermissions.Ban);
@@ -162,12 +183,34 @@ else
 	private async Task OnClickBan()
 	{
 		await CloseAsync();
-		
+
 		var data = new BanModal.BanModalProps()
 		{
 			Member = Data.Member
 		};
-		
+
 		ModalRoot.OpenModal<BanModal>(data);
+	}
+
+	private async Task OnClickBlock(BlockType blockType)
+	{
+		var result = await BlockService.BlockUserAsync(Data.Member.UserId, blockType);
+		if (result.Success)
+			ToastContainer.Instance.AddToast(new ToastData("Blocked", $"{Data.Member.User.Name} has been blocked.", ToastProgressState.Success));
+		else
+			ToastContainer.Instance.AddToast(new ToastData("Error", result.Message, ToastProgressState.Failure));
+
+		await CloseAsync();
+	}
+
+	private async Task OnClickUnblock()
+	{
+		var result = await BlockService.UnblockUserAsync(Data.Member.UserId);
+		if (result.Success)
+			ToastContainer.Instance.AddToast(new ToastData("Unblocked", $"{Data.Member.User.Name} has been unblocked.", ToastProgressState.Success));
+		else
+			ToastContainer.Instance.AddToast(new ToastData("Error", result.Message, ToastProgressState.Failure));
+
+		await CloseAsync();
 	}
 }

@@ -96,6 +96,10 @@ namespace Valour.Database.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("planet_id");
 
+                    b.Property<long?>("ResponseChannelId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("response_channel_id");
+
                     b.Property<long?>("RoleId")
                         .HasColumnType("bigint")
                         .HasColumnName("role_id");
@@ -181,6 +185,10 @@ namespace Valour.Database.Migrations
                     b.Property<long>("PlanetId")
                         .HasColumnType("bigint")
                         .HasColumnName("planet_id");
+
+                    b.Property<bool>("RunForEveryone")
+                        .HasColumnType("boolean")
+                        .HasColumnName("run_for_everyone");
 
                     b.Property<string>("TriggerWords")
                         .HasColumnType("text")
@@ -286,6 +294,10 @@ namespace Valour.Database.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<long?>("AssociatedChatChannelId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("associated_chat_channel_id");
+
                     b.Property<int>("ChannelType")
                         .HasColumnType("integer")
                         .HasColumnName("channel_type");
@@ -314,6 +326,10 @@ namespace Valour.Database.Migrations
                         .HasColumnType("text")
                         .HasColumnName("name");
 
+                    b.Property<bool>("Nsfw")
+                        .HasColumnType("boolean")
+                        .HasColumnName("nsfw");
+
                     b.Property<long?>("ParentId")
                         .HasColumnType("bigint")
                         .HasColumnName("parent_id");
@@ -331,6 +347,8 @@ namespace Valour.Database.Migrations
                         .HasColumnName("version");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AssociatedChatChannelId");
 
                     b.HasIndex("IsDeleted");
 
@@ -561,13 +579,16 @@ namespace Valour.Database.Migrations
 
                     b.HasIndex("AccountToId");
 
+                    b.HasIndex("Fingerprint")
+                        .IsUnique();
+
                     b.HasIndex("PlanetId");
 
                     b.HasIndex("UserFromId");
 
                     b.HasIndex("UserToId");
 
-                    b.ToTable("transactions");
+                    b.ToTable("transactions", (string)null);
                 });
 
             modelBuilder.Entity("Valour.Database.EmailConfirmCode", b =>
@@ -702,6 +723,68 @@ namespace Valour.Database.Migrations
                     b.HasIndex("MessageId");
 
                     b.ToTable("message_reactions", (string)null);
+                });
+
+            modelBuilder.Entity("Valour.Database.ModerationAuditLog", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("ActionType")
+                        .HasColumnType("integer")
+                        .HasColumnName("action_type");
+
+                    b.Property<long?>("ActorUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("actor_user_id");
+
+                    b.Property<string>("Details")
+                        .HasColumnType("text")
+                        .HasColumnName("details");
+
+                    b.Property<long?>("MessageId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("message_id");
+
+                    b.Property<long>("PlanetId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("planet_id");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("integer")
+                        .HasColumnName("source");
+
+                    b.Property<long?>("TargetMemberId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("target_member_id");
+
+                    b.Property<long?>("TargetUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("target_user_id");
+
+                    b.Property<DateTime>("TimeCreated")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("time_created");
+
+                    b.Property<Guid?>("TriggerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("trigger_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorUserId");
+
+                    b.HasIndex("PlanetId");
+
+                    b.HasIndex("TargetUserId");
+
+                    b.HasIndex("TimeCreated");
+
+                    b.ToTable("moderation_audit_logs", (string)null);
                 });
 
             modelBuilder.Entity("Valour.Database.MultiAuth", b =>
@@ -1701,6 +1784,42 @@ namespace Valour.Database.Migrations
                     b.ToTable("themes");
                 });
 
+            modelBuilder.Entity("Valour.Database.Themes.ThemeAsset", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<bool>("Animated")
+                        .HasColumnType("boolean")
+                        .HasColumnName("animated");
+
+                    b.Property<string>("AssetType")
+                        .HasColumnType("text")
+                        .HasColumnName("asset_type");
+
+                    b.Property<string>("CdnExtension")
+                        .HasColumnType("text")
+                        .HasColumnName("cdn_ext");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<long>("ThemeId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("theme_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ThemeId");
+
+                    b.ToTable("theme_assets");
+                });
+
             modelBuilder.Entity("Valour.Database.Themes.ThemeVote", b =>
                 {
                     b.Property<long>("Id")
@@ -1788,6 +1907,14 @@ namespace Valour.Database.Migrations
                         .HasColumnType("text")
                         .HasColumnName("prior_name");
 
+                    b.Property<string>("StarColor1")
+                        .HasColumnType("text")
+                        .HasColumnName("star_color_1");
+
+                    b.Property<string>("StarColor2")
+                        .HasColumnType("text")
+                        .HasColumnName("star_color_2");
+
                     b.Property<string>("Status")
                         .HasColumnType("text")
                         .HasColumnName("status");
@@ -1838,6 +1965,41 @@ namespace Valour.Database.Migrations
                         .IsUnique();
 
                     b.ToTable("users", (string)null);
+                });
+
+            modelBuilder.Entity("Valour.Database.UserBlock", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("BlockType")
+                        .HasColumnType("integer")
+                        .HasColumnName("block_type");
+
+                    b.Property<long>("BlockedUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("blocked_user_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BlockedUserId");
+
+                    b.HasIndex("UserId", "BlockedUserId")
+                        .IsUnique();
+
+                    b.ToTable("user_blocks");
                 });
 
             modelBuilder.Entity("Valour.Database.UserChannelState", b =>
@@ -1909,6 +2071,10 @@ namespace Valour.Database.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("DmPolicy")
+                        .HasColumnType("integer")
+                        .HasColumnName("dm_policy");
 
                     b.Property<long>("EnabledNotificationSources")
                         .HasColumnType("bigint")
@@ -2053,9 +2219,21 @@ namespace Valour.Database.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_charged");
 
+                    b.Property<string>("PendingType")
+                        .HasColumnType("text")
+                        .HasColumnName("pending_type");
+
                     b.Property<int>("Renewals")
                         .HasColumnType("integer")
                         .HasColumnName("renewals");
+
+                    b.Property<bool>("StripePaymentFailed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("stripe_payment_failed");
+
+                    b.Property<string>("StripeSubscriptionId")
+                        .HasColumnType("text")
+                        .HasColumnName("stripe_subscription_id");
 
                     b.Property<string>("Type")
                         .HasColumnType("text")
@@ -2467,6 +2645,17 @@ namespace Valour.Database.Migrations
                     b.Navigation("Author");
                 });
 
+            modelBuilder.Entity("Valour.Database.Themes.ThemeAsset", b =>
+                {
+                    b.HasOne("Valour.Database.Themes.Theme", "Theme")
+                        .WithMany("ThemeAssets")
+                        .HasForeignKey("ThemeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Theme");
+                });
+
             modelBuilder.Entity("Valour.Database.Themes.ThemeVote", b =>
                 {
                     b.HasOne("Valour.Database.Themes.Theme", "Theme")
@@ -2494,6 +2683,25 @@ namespace Valour.Database.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Owner");
+                });
+
+            modelBuilder.Entity("Valour.Database.UserBlock", b =>
+                {
+                    b.HasOne("Valour.Database.User", "BlockedUser")
+                        .WithMany()
+                        .HasForeignKey("BlockedUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Valour.Database.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("BlockedUser");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Valour.Database.UserChannelState", b =>
@@ -2642,6 +2850,8 @@ namespace Valour.Database.Migrations
 
             modelBuilder.Entity("Valour.Database.Themes.Theme", b =>
                 {
+                    b.Navigation("ThemeAssets");
+
                     b.Navigation("ThemeVotes");
                 });
 

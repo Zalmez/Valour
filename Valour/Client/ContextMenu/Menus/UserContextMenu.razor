@@ -2,6 +2,7 @@
 @inject IJSRuntime JsRuntime
 @inject ValourClient Client
 @inject FriendService FriendService
+@inject BlockService BlockService
 @inject ChannelService ChannelService
 
 <ContextMenuItem OnClickAsync="@OnClickMessage">
@@ -31,6 +32,25 @@ else
 	</ContextMenuItem>
 }
 
+@if (!_isSelf && _isBlocked)
+{
+	<ContextMenuItem OnClickAsync="@OnClickUnblock">
+		<Label>Unblock</Label>
+		<Icon><i class="bi bi-shield-fill-check"></i></Icon>
+	</ContextMenuItem>
+}
+else if (!_isSelf)
+{
+	<ContextSubMenu>
+		<Label>Block</Label>
+		<Icon><i class="bi bi-shield-fill-x"></i></Icon>
+		<Content>
+			<ContextMenuItem OnClickAsync="@(() => OnClickBlock(BlockType.OneWay))">One-Way Block</ContextMenuItem>
+			<ContextMenuItem OnClickAsync="@(() => OnClickBlock(BlockType.TwoWay))">Two-Way Block</ContextMenuItem>
+		</Content>
+	</ContextSubMenu>
+}
+
 <ContextSubMenu>
 	<Label>Copy</Label>
 	<Icon><i class="bi bi-caret-right-fill"></i></Icon>
@@ -51,10 +71,14 @@ else
 	{
 		_isFriendRequested = FriendService.OutgoingRequests.Any(x => x.Id == Data.User.Id);
 		_isFriend = FriendService.Friends.Any(x => x.Id == Data.User.Id);
+		_isSelf = Data.User.Id == Client.Me.Id;
+		_isBlocked = BlockService.IsBlocked(Data.User.Id);
 	}
 
 	private bool _isFriend;
 	private bool _isFriendRequested;
+	private bool _isSelf;
+	private bool _isBlocked;
 
 	private async Task OnClickAddFriend()
 	{
@@ -100,5 +124,27 @@ else
 		var channel = await ChannelService.FetchDmChannelAsync(Data.User.Id, true);
 		var newWindowContent = await ChatWindowComponent.GetDefaultContent(channel);
 		await WindowService.OpenWindowAtFocused(newWindowContent);
+	}
+
+	private async Task OnClickBlock(BlockType blockType)
+	{
+		var result = await BlockService.BlockUserAsync(Data.User.Id, blockType);
+		if (result.Success)
+			ToastContainer.Instance.AddToast(new ToastData("Blocked", $"{Data.User.Name} has been blocked.", ToastProgressState.Success));
+		else
+			ToastContainer.Instance.AddToast(new ToastData("Error", result.Message, ToastProgressState.Failure));
+
+		await CloseAsync();
+	}
+
+	private async Task OnClickUnblock()
+	{
+		var result = await BlockService.UnblockUserAsync(Data.User.Id);
+		if (result.Success)
+			ToastContainer.Instance.AddToast(new ToastData("Unblocked", $"{Data.User.Name} has been unblocked.", ToastProgressState.Success));
+		else
+			ToastContainer.Instance.AddToast(new ToastData("Error", result.Message, ToastProgressState.Failure));
+
+		await CloseAsync();
 	}
 }

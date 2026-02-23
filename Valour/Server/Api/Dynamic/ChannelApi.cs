@@ -182,10 +182,33 @@ public class ChannelApi
         long otherUserId,
         ChannelService channelService,
         UserService userService,
+        UserBlockService userBlockService,
+        ValourDb db,
         [FromQuery] bool create = true)
     {
         var userId = await userService.GetCurrentUserIdAsync();
-        
+
+        if (create)
+        {
+            // Check blocks: if either user has blocked the other, forbid
+            if (await userBlockService.IsBlockedEitherWayAsync(userId, otherUserId))
+                return ValourResult.Forbid("Cannot open a DM with this user.");
+
+            // Check DM policy of the target user
+            var targetPrefs = await db.UserPreferences.FindAsync(otherUserId);
+            if (targetPrefs is not null && targetPrefs.DmPolicy == DmPolicy.FriendsOnly)
+            {
+                // Check for mutual friendship
+                var isMutualFriend = await db.UserFriends.AnyAsync(
+                    x => x.UserId == userId && x.FriendId == otherUserId) &&
+                    await db.UserFriends.AnyAsync(
+                    x => x.UserId == otherUserId && x.FriendId == userId);
+
+                if (!isMutualFriend)
+                    return ValourResult.Forbid("This user only accepts DMs from friends.");
+            }
+        }
+
         var channel = await channelService.GetDirectChannelByUsersAsync(userId, otherUserId, create);
         if (channel is null)
             return ValourResult.NotFound<Channel>();
@@ -351,28 +374,37 @@ public class ChannelApi
         MessageService messageService,
         ChannelService channelService,
         TokenService tokenService,
+        UserBlockService userBlockService,
         long index = long.MaxValue,
         int count = 10)
     {
         if (count > 64)
             return Results.BadRequest("Maximum count is 64.");
-        
+
         var token = await tokenService.GetCurrentTokenAsync();
-        
+
         if (planetId is null && !token.HasScope(UserPermissions.DirectMessages))
         {
             return ValourResult.Forbid("Token lacks permission to view messages in this channel");
         }
-        
+
         var channel = await channelService.GetChannelAsync(planetId, channelId);
         if (channel is null)
             return ValourResult.NotFound("Channel not found");
-        
+
         if (!await channelService.HasAccessAsync(channel, token.UserId))
             return ValourResult.Forbid("You are not a member of this channel");
-        
+
         var messages = await messageService.GetChannelMessagesAsync(planetId, channelId, count, index);
-        
+
+        // Filter out messages from blocked users
+        var hidden = await userBlockService.GetEffectiveHiddenUserIdsAsync(token.UserId);
+        if (hidden.Count > 0)
+        {
+            messages = messages.Where(m => !hidden.Contains(m.AuthorUserId)).ToList();
+            RemoveBlockedReplyPreviews(messages, hidden);
+        }
+
         return Results.Json(messages);
     }
     
@@ -385,6 +417,7 @@ public class ChannelApi
         MessageService messageService,
         ChannelService channelService,
         TokenService tokenService,
+        UserBlockService userBlockService,
         long afterId = 0,
         int count = 10)
     {
@@ -407,6 +440,14 @@ public class ChannelApi
 
         var messages = await messageService.GetChannelMessagesAfterAsync(planetId, channelId, afterId, count);
 
+        // Filter out messages from blocked users
+        var hidden = await userBlockService.GetEffectiveHiddenUserIdsAsync(token.UserId);
+        if (hidden.Count > 0)
+        {
+            messages = messages.Where(m => !hidden.Contains(m.AuthorUserId)).ToList();
+            RemoveBlockedReplyPreviews(messages, hidden);
+        }
+
         return Results.Json(messages);
     }
 
@@ -419,28 +460,49 @@ public class ChannelApi
         long? planetId,
         MessageService messageService,
         ChannelService channelService,
-        TokenService tokenService)
+        TokenService tokenService,
+        UserBlockService userBlockService)
     {
         if (request.Count > 20)
             return Results.BadRequest("Maximum count is 20.");
-        
+
         var token = await tokenService.GetCurrentTokenAsync();
-        
+
         if (planetId is null && !token.HasScope(UserPermissions.DirectMessages))
         {
             return ValourResult.Forbid("Token lacks permission to view messages in this channel");
         }
-        
+
         var channel = await channelService.GetChannelAsync(planetId, channelId);
         if (channel is null)
             return ValourResult.NotFound("Channel not found");
-        
+
         if (!await channelService.HasAccessAsync(channel, token.UserId))
             return ValourResult.Forbid("You are not a member of this channel");
-        
+
         var messages = await messageService.SearchChannelMessagesAsync(planetId, channelId, request.SearchText, request.Count);
-        
+
+        // Filter out messages from blocked users
+        var hidden = await userBlockService.GetEffectiveHiddenUserIdsAsync(token.UserId);
+        if (hidden.Count > 0)
+        {
+            messages = messages.Where(m => !hidden.Contains(m.AuthorUserId)).ToList();
+            RemoveBlockedReplyPreviews(messages, hidden);
+        }
+
         return Results.Json(messages);
+    }
+
+    private static void RemoveBlockedReplyPreviews(IEnumerable<Message> messages, HashSet<long> hiddenUserIds)
+    {
+        foreach (var message in messages)
+        {
+            if (message.ReplyTo is not null && hiddenUserIds.Contains(message.ReplyTo.AuthorUserId))
+            {
+                message.ReplyTo = null;
+                message.ReplyToId = null;
+            }
+        }
     }
 
     [ValourRoute(HttpVerbs.Get, "api/planets/{planetId}/channels/{channelId}/recentChatters")]

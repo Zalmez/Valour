@@ -11,7 +11,7 @@
     Engine="@_engine"
     ShowSearch="true"
     Infinite="true"
-    TableMinWidth="700"
+    TableMinWidth="850"
     SearchPlaceholder="Search name..." />
 
 <button class="v-btn mt-2" @onclick="OpenCreateModal">Add Trigger</button>
@@ -48,12 +48,18 @@
                 Name = "Type",
                 SortField = "type",
                 Sortable = true,
-                RenderFragment = row => @<span>@row.Row.Type</span>
+                RenderFragment = row => @<span>@GetTriggerTypeLabel(row.Row.Type)</span>
             },
             new()
             {
-                Name = "Words",
-                RenderFragment = row => @<span>@row.Row.TriggerWords</span>
+                Name = "Applies To",
+                RenderFragment = row => @<span>@(row.Row.RunForEveryone ? "Everyone" : "Bypassable")</span>,
+                Width = "140px"
+            },
+            new()
+            {
+                Name = "Trigger",
+                RenderFragment = row => @<span>@GetTriggerSummary(row.Row)</span>
             },
             new()
             {
@@ -93,5 +99,41 @@
         _result = await trigger.DeleteAsync();
         if (_result.Success && _table is not null)
             await _table.Requery();
+    }
+
+    private static string GetTriggerTypeLabel(AutomodTriggerType triggerType) =>
+        triggerType switch
+        {
+            AutomodTriggerType.Blacklist => "Trigger Words",
+            AutomodTriggerType.Spam => "Spam",
+            AutomodTriggerType.Join => "Member Join",
+            AutomodTriggerType.Command => "Command",
+            _ => triggerType.ToString()
+        };
+
+    private static string GetTriggerSummary(AutomodTrigger trigger)
+    {
+        if (trigger.Type == AutomodTriggerType.Join)
+            return "-";
+
+        if (trigger.Type == AutomodTriggerType.Command)
+            return "/" + (trigger.TriggerWords ?? string.Empty);
+
+        if (trigger.Type != AutomodTriggerType.Spam)
+            return trigger.TriggerWords ?? string.Empty;
+
+        var messageThreshold = 5;
+        var windowSeconds = 10;
+        if (!string.IsNullOrWhiteSpace(trigger.TriggerWords))
+        {
+            var parts = trigger.TriggerWords.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 1 && int.TryParse(parts[0], out var parsedThreshold))
+                messageThreshold = Math.Clamp(parsedThreshold, 2, 50);
+
+            if (parts.Length >= 2 && int.TryParse(parts[1], out var parsedWindow))
+                windowSeconds = Math.Clamp(parsedWindow, 1, 300);
+        }
+
+        return $"{messageThreshold} messages / {windowSeconds}s";
     }
 }

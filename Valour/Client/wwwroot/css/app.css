@@ -469,6 +469,7 @@ body {
     flex-direction: column;
     height: 100%;
     flex: 1;
+    min-width: 0;
     overflow: hidden;
 }
 
@@ -478,11 +479,20 @@ body {
     height: 100%;
     display: flex;
     align-items: stretch;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.window-dock,
+.window-wrapper,
+.window {
+    min-width: 0;
 }
 
 .sidebar-container {
     width: 0;
     transition: width 0.5s ease-in-out;
+    overflow: visible;
     z-index: 5;
 }
 
@@ -519,6 +529,14 @@ body {
 
 .sidebar-container.sidebar-active .sidebar-menu {
     transform: translate(0px);
+}
+
+.window-wrapper:has(.video-fullscreen-backdrop) {
+    z-index: 20050 !important;
+}
+
+.window-wrapper:has(.video-fullscreen-backdrop) .video-fullscreen-backdrop {
+    z-index: 20060;
 }
 
 .sidebar-embedded {

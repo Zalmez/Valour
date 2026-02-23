@@ -11,6 +11,7 @@ public class CloudflareConfig
     public string RealtimeAppId { get; set; } = string.Empty;
     public string RealtimeApiToken { get; set; } = string.Empty;
     public string RealtimePresetName { get; set; } = "group_call_host";
+    public string RealtimeVideoPresetName { get; set; } = "video_call";
     
     public CloudflareConfig()
     {

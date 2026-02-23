@@ -36,7 +36,7 @@
 .result-message > p {
     display: inline-flex;
     flex-direction: row;
-    justify-content: space-between;
+    justify-content: start;
     width: 100%;
     max-height: 120px;
     overflow-y: auto;

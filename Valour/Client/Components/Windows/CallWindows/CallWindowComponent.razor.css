@@ -1,0 +1,64 @@
+.call-window-layout {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.call-window-layout.dragging ::deep * {
+    pointer-events: none;
+}
+
+.call-window-layout.dragging .call-window-splitter {
+    pointer-events: auto;
+}
+
+.call-window-top {
+    min-height: 180px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.call-window-splitter {
+    flex: 0 0 6px;
+    cursor: row-resize;
+    background: transparent;
+    transition: background-color 0.15s ease;
+    border-top: 1px solid var(--slight-tint);
+    border-bottom: 1px solid transparent;
+}
+
+.call-window-splitter:hover,
+.call-window-layout.dragging .call-window-splitter {
+    background: rgba(55, 164, 206, 0.18);
+    border-top-color: rgba(55, 164, 206, 0.35);
+    border-bottom-color: rgba(55, 164, 206, 0.35);
+}
+
+.call-window-bottom {
+    min-height: 220px;
+    min-width: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.call-window-empty-state {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--font-alt-color);
+    opacity: 0.75;
+    text-align: center;
+    padding: 12px;
+}
+
+.call-window-empty-state i {
+    font-size: 22px;
+}

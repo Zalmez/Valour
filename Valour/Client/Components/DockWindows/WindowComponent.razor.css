@@ -62,11 +62,11 @@
     flex: 1 1 auto;
 }
 
-.window.docked {
+.docked .window {
     display: none;
 }
 
-.window.docked.active {
+.docked.active .window {
     display: flex;
 }
 
